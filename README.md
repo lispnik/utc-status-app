@@ -1,5 +1,7 @@
 # utc-status
 
+[![macOS](https://github.com/lispnik/utc-status-app/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/lispnik/utc-status-app/actions/workflows/ci-macos.yml)
+
 A macOS menu-bar clock showing UTC, written in Common Lisp.
 
 The title is the current time in UTC, laid out the way your system clock is laid
@@ -24,9 +26,36 @@ make test       # the FiveAM suite
 make run        # build and run
 ```
 
-The objc bindings are a sibling checkout rather than an ocicl package, so the
-Makefile builds a source registry from this tree plus that one. `OBJC_DIR`
-overrides where it looks, and defaults to `~/Projects/common-lisp/objc`.
+The objc bindings are a sibling checkout rather than an ocicl package, so clone
+both and the defaults line up:
+
+```
+git clone https://github.com/lispnik/objc.git
+git clone https://github.com/lispnik/utc-status-app.git
+cd objc && ocicl install     # every dependency of BOTH projects is listed here
+cd ../utc-status-app && make
+```
+
+The Makefile builds a source registry from this tree plus that one, with
+`:ignore-inherited-configuration` so a missing dependency fails loudly rather
+than resolving to whatever is in your `~/.sbclrc`. `OBJC_DIR` overrides where it
+looks and defaults to `~/Projects/common-lisp/objc`.
+
+`ocicl install` belongs in the **objc** checkout: this project has no `ocicl.csv`
+of its own, and every Lisp dependency it has — cffi, alexandria, closer-mop,
+bordeaux-threads, trivial-features, float-features, fiveam — comes from objc's.
+
+`make env` prints what the layout code decided on your machine, which is the
+first thing to look at if the menu-bar text is not the shape you expected:
+
+```
+$ make env
+machine:     ARM64
+lisp:        SBCL 2.6.8
+preferences: (:DAY-OF-WEEK T :DATE T :SECONDS NIL)
+skeleton:    "EEEMMMdjmm"
+title:       "Sun Sep 6  07:15"
+```
 
 ```
 ./bin/utc-status                  # the menu-bar clock

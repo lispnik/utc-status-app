@@ -1,0 +1,130 @@
+# macOS only, because this is a macOS menu-bar application: it binds AppKit, and
+# there is nothing here that could run anywhere else.
+#
+# THE DEPENDENCY IS A SIBLING CHECKOUT, NOT A PACKAGE.  objc is not on ocicl, so
+# this workflow checks it out beside this repository and points OBJC_DIR at it --
+# the same shape the Makefile expects locally.  Its ocicl/ directory is
+# gitignored there, so `ocicl install' has to run INSIDE that checkout: every
+# Lisp dependency this project has (cffi, alexandria, closer-mop,
+# bordeaux-threads, trivial-features, float-features, fiveam) comes from objc's
+# ocicl.csv, and none from ours.  Restoring in the wrong directory installs
+# nothing and fails later with a system that cannot be found.
+#
+# objc is tracked at master rather than pinned to a tag.  The two are developed
+# together, so a break in objc that breaks this application is something worth
+# being told about; the cost is that this badge can go red for a change made in
+# another repository.  Pin OBJC_REF below if that trade stops being worth it.
+#
+# WHAT A HEADLESS RUN CAN AND CANNOT PROVE.  GitHub's macOS runners have no
+# window server, so nothing here puts an item in a menu bar -- that path is
+# exercised by hand.  What does run is everything the menu bar would depend on:
+# the ISO renderings, the layout read from the clock's own preferences, the
+# NSDateFormatter pattern, the menu built as an ordinary object with an item per
+# rendering, and the action AppKit would send when one is chosen.
+#
+# The binary is built and run, and that step is not box-ticking.  objc reopens
+# its foreign libraries through an image-restore hook, because CFFI's record of
+# an open library survives SAVE-LISP-AND-DIE and would otherwise leave the
+# dumped image bound to whatever the loader found at build time.  `--print'
+# after a dump is the cheapest possible check that the hook fired.
+
+name: macOS
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  OBJC_REPO: lispnik/objc
+  OBJC_REF: master
+
+jobs:
+  test:
+    name: sbcl · ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    # The work is small; the cap is here so a wedged runner fails visibly rather
+    # than sitting for an hour and ending with "lost communication".
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-26-intel
+            arch: x86-64
+
+    steps:
+      - name: Check out utc-status-app
+        uses: actions/checkout@v5
+        with:
+          path: utc-status-app
+
+      - name: Check out objc beside it
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.OBJC_REPO }}
+          ref: ${{ env.OBJC_REF }}
+          path: objc
+
+      - name: Install SBCL
+        run: brew install sbcl
+
+      - name: Install and configure ocicl
+        run: |
+          # The ocicl *tool* is cloned outside both checkouts, so it cannot
+          # collide with the gitignored ocicl/ dependency directory in either.
+          git clone --depth 1 https://github.com/ocicl/ocicl.git "$HOME/ocicl-src"
+          ( cd "$HOME/ocicl-src" && sbcl --non-interactive --load setup.lisp )
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Restore dependencies into the objc checkout
+        # In objc, not here: its ocicl.csv is where every dependency of this
+        # project is listed, and this project has no ocicl.csv of its own.
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ocicl setup
+          cd objc && ocicl install
+          echo "restored:" && ls ocicl
+
+      - name: Report the environment the tests will see
+        # The clock preferences do not exist on a fresh runner, so the defaults
+        # are what get used -- and the skeleton and pattern below are what the
+        # menu bar would have been laid out with.  When something differs from a
+        # developer's machine, this is what says how.
+        working-directory: utc-status-app
+        run: make env OBJC_DIR="$GITHUB_WORKSPACE/objc"
+
+      - name: Run tests
+        # RUN-TESTS returns the status; FIVEAM:RUN! alone would exit 0 on a
+        # failing suite, which is how a CI run goes green on red tests.
+        working-directory: utc-status-app
+        run: make test OBJC_DIR="$GITHUB_WORKSPACE/objc"
+
+      - name: Run the clipboard tests too
+        # Opt-in locally because they overwrite the pasteboard of whoever runs
+        # them.  A runner is a throwaway virtual machine with nobody at the
+        # keyboard, so here they are simply extra coverage of the path a menu
+        # click actually takes.
+        working-directory: utc-status-app
+        run: make test-clipboard OBJC_DIR="$GITHUB_WORKSPACE/objc"
+
+      - name: Build the binary and run it
+        # A dumped image has to reopen libobjc through objc's restore hook; if it
+        # does not, this is where that shows up rather than on someone's Mac.
+        working-directory: utc-status-app
+        run: |
+          make build OBJC_DIR="$GITHUB_WORKSPACE/objc"
+          ./bin/utc-status --print seconds
+          ./bin/utc-status --print week
+          ./bin/utc-status --list
+          # The renderings have to agree with date(1), which is an oracle this
+          # code shares nothing with.
+          expected=$(date -u '+%Y-%m-%d')
+          actual=$(./bin/utc-status --print date)
+          test "$expected" = "$actual" || {
+            echo "date(1) says $expected, utc-status says $actual" >&2
+            exit 1
+          }
+          echo "the binary agrees with date(1): $actual"

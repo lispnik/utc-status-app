@@ -2,6 +2,7 @@
 #
 #   make            build bin/utc-status
 #   make test       run the FiveAM suite
+#   make env        print what the layout code decided on this machine
 #   make run        build and run the application
 #   make deps       restore ocicl-vendored dependencies
 #   make repl       an SBCL with the library loaded
@@ -24,7 +25,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(OBJC_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: all build test test-clipboard run deps repl clean
+.PHONY: all build test test-clipboard run deps repl env clean
 
 all: build
 
@@ -55,6 +56,16 @@ run: build
 
 deps:
 	ocicl install
+
+# What the layout code decided on this machine.  Its own target so CI can report
+# it in one line, and so the source registry is defined once rather than being
+# spelled out again in a workflow.
+env:
+	@$(LISP) --non-interactive --no-userinit --no-sysinit \
+	  --eval '(require :asdf)' \
+	  --eval '$(REGISTRY)' \
+	  --eval '(asdf:load-system :utc-status-app)' \
+	  --eval '(format t "~&machine:     ~A~%lisp:        ~A ~A~%preferences: ~S~%skeleton:    ~S~%title:       ~S~%" (machine-type) (lisp-implementation-type) (lisp-implementation-version) (utc-status-app:clock-preferences) (utc-status-app:clock-skeleton) (utc-status-app:menu-bar-title))'
 
 repl:
 	$(LISP) --no-userinit --no-sysinit \
