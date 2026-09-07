@@ -208,12 +208,43 @@ bar](#known-it-may-not-appear-on-a-crowded-menu-bar).
 The menu shows each of these as a live example, retitled just before it opens, so
 the line you click is the string you get.
 
+Below them are two checkable items:
+
+| Item | Effect |
+|---|---|
+| **Show Seconds** | seconds in the menu-bar title, regardless of what the system clock does |
+| **Show UTC Label** | append ` UTC`, so two identically-shaped clocks are told apart |
+
+Both are stored in `com.lispnik.utc-status` and survive a restart. **Absent means
+"follow the system"** — the state before you have touched either — and once set,
+ours wins. That is what makes them behave like checkboxes: the first click writes
+the opposite of whatever is on screen, whichever way the system had it. An
+explicit *off* is not the same as never having chosen, which matters on a Mac
+whose own clock shows seconds and you want this one not to.
+
 ## What "the same layout as the system clock" means here
 
 Not a format string copied from one Mac. The system clock's shape is a set of
 preferences — day of week, date, seconds, and the 12/24-hour choice — so this
-reads `com.apple.menuextra.clock` and builds the same shape from them. Change a
-setting and this follows on the next launch.
+reads `com.apple.menuextra.clock` and builds the same shape from them.
+
+**A setting changed while it is running takes effect within ten seconds**, with
+no restart. The clock re-reads the preferences every twentieth tick and rebuilds
+its formatter only when they actually differ.
+
+Polling, and that is a considered second choice rather than laziness.
+`NSUserDefaultsDidChangeNotification` is the obvious tool and is the wrong one:
+it is posted for changes made in *this* process, and the change worth reacting
+to — someone turning on 24-Hour Time in System Settings — happens in another.
+Comparing two small plists on a timer is unglamorous and actually works:
+
+```lisp
+(setf (preference +seconds-key+) :off)
+(menu-bar-title instant)          ; => "Sat Sep 5  21:47"
+;; ... `defaults write com.lispnik.utc-status ShowSeconds -bool true'
+;;     from another process, exactly as System Settings would ...
+(menu-bar-title instant)          ; => "Sat Sep 5  21:47:03"
+```
 
 Two details make that work outside one machine:
 
@@ -322,7 +353,7 @@ application the user cares about.
 
 ## Tests
 
-97 checks — 95 without the clipboard ones. The formatting half is checked against instants worked out
+109 checks — 107 without the clipboard ones. The formatting half is checked against instants worked out
 independently rather than by running the code and recording what it said, which
 is the failure a formatting suite is most prone to: a test that agrees with the
 bug. Beyond the obvious coverage:

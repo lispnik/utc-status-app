@@ -11,17 +11,39 @@
 (def-suite app :in all-tests :description "The menu and its actions.")
 (in-suite app)
 
-(test the-menu-has-an-item-per-rendering-and-a-quit
+(defmacro with-saved-preferences (&body body)
+  "Run BODY and put our defaults back afterwards.
+
+The toggles write to a real defaults domain, and a suite that leaves a user's
+preference flipped is the same discomfort as one that eats their clipboard."
+  `(let ((seconds (utc-status-app:preference utc-status-app:+seconds-key+))
+         (label (utc-status-app:preference utc-status-app:+label-key+)))
+     (unwind-protect (progn ,@body)
+       (setf (utc-status-app:preference utc-status-app:+seconds-key+) seconds
+             (utc-status-app:preference utc-status-app:+label-key+) label))))
+
+(test the-menu-has-an-item-per-rendering-plus-the-toggles-and-quit
   "Built without a status bar: an NSMenu is an ordinary object, so the shape of
-the menu can be checked in a process that never touches the menu bar."
+the menu can be checked in a process that never touches the menu bar.
+
+The count is spelled out rather than written as a number, so adding a rendering
+or a toggle changes it in one place and the arithmetic stays legible."
   (progn
     (objc:with-autorelease-pool ()
       (let* ((controller (make-instance 'utc-status-app::controller))
              (target (objc:objc-object-pointer controller))
              (menu (utc-status-app::build-menu target)))
-        (is (= (+ (length utc-status-app:+renderings+) 2)
-               (objc:invoke menu "numberOfItems"))
-            "one item per rendering, a separator, and Quit")
+        (is (= (+ (length utc-status-app:+renderings+) ; one each
+                  2                                    ; two separators
+                  2                                    ; Show Seconds, Show UTC Label
+                  1)                                   ; Quit
+               (objc:invoke menu "numberOfItems")))
+        (dolist (tag (list utc-status-app::+tag-seconds+
+                           utc-status-app::+tag-label+
+                           utc-status-app::+tag-quit+))
+          (is (not (cffi:null-pointer-p
+                    (objc:objc-object-pointer (objc:invoke menu "itemWithTag:" tag))))
+              "no item is tagged ~D" tag))
         (loop for rendering in utc-status-app:+renderings+
               for index from 0
               for item = (objc:invoke menu "itemWithTag:" index)
@@ -69,3 +91,70 @@ whoever runs it."
                   "~S has a time in it, so a different rendering was copied" copied)
               (is (string= copied (utc-status-app:render-now :date))
                   "~S is not today's date in UTC" copied)))))))
+
+(test a-preference-overrides-the-system-and-absence-follows-it
+  "Ours is authoritative when present and invisible when not, which is what makes
+the menu item behave like a checkbox: the first click writes the opposite of
+whatever is on screen, whichever way the system had it."
+  (with-saved-preferences
+    (let ((system (getf (utc-status-app:clock-preferences) :seconds)))
+      (setf (utc-status-app:preference utc-status-app:+seconds-key+) nil)
+      (is (eq (getf (utc-status-app:effective-preferences) :seconds) system)
+          "with nothing of ours set, the system's answer is the answer")
+      (setf (utc-status-app:preference utc-status-app:+seconds-key+) :on)
+      (is-true (getf (utc-status-app:effective-preferences) :seconds))
+      (setf (utc-status-app:preference utc-status-app:+seconds-key+) :off)
+      (is-false (getf (utc-status-app:effective-preferences) :seconds)
+                "OFF has to differ from absent, or a user cannot turn seconds ~
+off on a Mac whose clock shows them"))))
+
+(test the-seconds-preference-reaches-the-title
+  "Not just the plist: the skeleton gains ss, and the formatter is rebuilt rather
+than serving the one it cached before the setting changed."
+  (with-saved-preferences
+    (let ((instant (utc-status-app:make-instant 1788644823 0)))
+      (setf (utc-status-app:preference utc-status-app:+seconds-key+) :off)
+      (let ((without (utc-status-app:menu-bar-title instant)))
+        (setf (utc-status-app:preference utc-status-app:+seconds-key+) :on)
+        (let ((with (utc-status-app:menu-bar-title instant)))
+          (is (search "ss" (utc-status-app:clock-skeleton))
+              "the skeleton asks for seconds")
+          (is (string/= without with)
+              "the title did not change, so the formatter was not rebuilt: ~
+~S both times" without)
+          (is (> (length with) (length without))
+              "turning seconds on made the title no longer: ~S then ~S"
+              without with))))))
+
+(test the-label-preference-appends-utc
+  "The escape hatch from two identically shaped clocks that disagree by hours."
+  (with-saved-preferences
+    (let ((instant (utc-status-app:make-instant 1788644823 0))
+          (utc-status-app:*label* nil))
+      (setf (utc-status-app:preference utc-status-app:+label-key+) :off)
+      (let ((plain (utc-status-app:menu-bar-title instant)))
+        (setf (utc-status-app:preference utc-status-app:+label-key+) :on)
+        (let ((labelled (utc-status-app:menu-bar-title instant)))
+          (is (string= (concatenate 'string plain " UTC") labelled)
+              "~S is not ~S with a label on the end" labelled plain))))))
+
+(test toggling-flips-the-preference-and-the-checkmark
+  "The menu action AppKit would send, and the state the item shows afterwards.
+NSControlStateValueOn is 1, Off is 0."
+  (with-saved-preferences
+    (objc:with-autorelease-pool ()
+      (let* ((controller (make-instance 'utc-status-app::controller))
+             (target (objc:objc-object-pointer controller))
+             (menu (utc-status-app::build-menu target))
+             (item (objc:invoke menu "itemWithTag:" utc-status-app::+tag-label+)))
+        (setf (utc-status-app:preference utc-status-app:+label-key+) :off)
+        (utc-status-app::refresh-menu menu)
+        (is (= 0 (objc:invoke item "state")) "unchecked when the label is off")
+        (objc:invoke target "toggleLabel:" item)
+        (is-true (getf (utc-status-app:effective-preferences) :label)
+                 "the action did not turn the label on")
+        (utc-status-app::refresh-menu menu)
+        (is (= 1 (objc:invoke item "state")) "checked once it is on")
+        (objc:invoke target "toggleLabel:" item)
+        (is-false (getf (utc-status-app:effective-preferences) :label)
+                  "a second click did not turn it back off")))))

@@ -68,7 +68,7 @@ $(APP_STAMP): utc-status-app.asd $(wildcard src/*.lisp)
 	$(LISP) --non-interactive --no-userinit --no-sysinit \
 	  --eval '(require :asdf)' \
 	  --eval '$(REGISTRY)' \
-	  --eval '(asdf:make :utc-status-app/bundle)'
+	  --eval '(asdf:make :utc-status-app-bundle)'
 	@touch $(APP_STAMP)
 	@echo "built $(APP)"
 

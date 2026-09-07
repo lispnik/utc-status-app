@@ -130,6 +130,19 @@ jobs:
           # that does not exist, which launchd reports as nothing at all.
           ! grep -q "@" rendered.plist || { echo "unsubstituted placeholder" >&2; exit 1; }
 
+      - name: The library must load without asdf-macos-app
+        # :DEFSYSTEM-DEPENDS-ON is resolved when an .asd is read, so the bundle
+        # system living in the main file made asdf-macos-app a hard requirement
+        # for loading the library at all.  A registry with objc and NOT
+        # asdf-macos-app is the only thing that catches that.
+        working-directory: utc-status-app
+        run: |
+          sbcl --non-interactive --no-userinit --no-sysinit \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :tree (truename "./")) (list :tree (truename (format nil "~a/objc/" (uiop:getenv "GITHUB_WORKSPACE")))) :ignore-inherited-configuration))' \
+            --eval '(asdf:load-system :utc-status-app/tests)' \
+            --eval '(uiop:quit (if (utc-status-app/tests:run-tests) 0 1))'
+
       - name: Run tests
         # RUN-TESTS returns the status; FIVEAM:RUN! alone would exit 0 on a
         # failing suite, which is how a CI run goes green on red tests.

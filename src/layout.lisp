@@ -78,9 +78,65 @@ to yes far more often than not."
             :date (/= 2 (objc:invoke defaults "integerForKey:" "ShowDate"))
             :seconds (%bool-default defaults "ShowSeconds" nil)))))
 
+;;; Our own preferences -------------------------------------------------------------
+;;;
+;;; The system clock's settings say what SHAPE the title has.  These two say what
+;;; this clock does differently, and they are ours: written to our own defaults
+;;; domain by the menu, and authoritative over the system's when present.
+;;;
+;;; Absent means "follow the system", which is the state before anyone has
+;;; touched the menu.  That is why these are read with -objectForKey: first
+;;; rather than -boolForKey:, which cannot tell an absent key from a false one.
+
+(defparameter +preferences-domain+ "com.lispnik.utc-status"
+  "Where this application keeps its own settings.")
+
+(defun preference (key)
+  "Our setting for KEY as :ON, :OFF, or NIL for \"follow the system\"."
+  (objc:ensure-objc-initialized)
+  (objc:with-autorelease-pool ()
+    (let* ((defaults (%defaults-for +preferences-domain+))
+           (object (objc:invoke defaults "objectForKey:" key)))
+      (unless (cffi:null-pointer-p (objc:objc-object-pointer object))
+        (if (objc:invoke-bool defaults "boolForKey:" key) :on :off)))))
+
+(defun (setf preference) (state key)
+  "Set KEY to :ON or :OFF, or to NIL to go back to following the system."
+  (objc:ensure-objc-initialized)
+  (objc:with-autorelease-pool ()
+    (let ((defaults (%defaults-for +preferences-domain+)))
+      (if (null state)
+          (objc:invoke defaults "removeObjectForKey:" key)
+          (objc:invoke defaults "setBool:forKey:" (eq state :on) key))
+      ;; -synchronize is deprecated and still the only way to be sure the write
+      ;; has landed before the process is killed -- which, for a menu-bar
+      ;; application people quit from its own menu, is a real possibility.
+      (objc:invoke defaults "synchronize")))
+  state)
+
+(defparameter +seconds-key+ "ShowSeconds")
+(defparameter +label-key+ "ShowLabel")
+
+(defun effective-preferences ()
+  "The system clock's layout, with our overrides applied.
+
+    (effective-preferences)
+    => (:DAY-OF-WEEK T :DATE T :SECONDS NIL :LABEL NIL)
+
+:SECONDS is ours when we have an opinion and the system's otherwise, which is
+what makes the menu item behave like a checkbox: the first click writes the
+opposite of whatever is on screen."
+  (let ((system (clock-preferences))
+        (seconds (preference +seconds-key+))
+        (label (preference +label-key+)))
+    (list :day-of-week (getf system :day-of-week)
+          :date (getf system :date)
+          :seconds (if seconds (eq seconds :on) (getf system :seconds))
+          :label (eq label :on))))
+
 ;;; Turning them into a format ------------------------------------------------------
 
-(defun clock-skeleton (&optional (preferences (clock-preferences)))
+(defun clock-skeleton (&optional (preferences (effective-preferences)))
   "The Unicode date-field skeleton for PREFERENCES.
 
     (clock-skeleton '(:day-of-week t :date nil :seconds nil))   => \"EEEjmm\"
@@ -135,7 +191,10 @@ side, and the menu bar has that same wider gap before the time."
 (defvar *formatter* nil
   "The cached NSDateFormatter, built once rather than once a second.")
 
-(defun %make-formatter (&optional (preferences (clock-preferences)))
+(defvar *formatter-preferences* nil
+  "The preferences *FORMATTER* was built from, so a change can be noticed.")
+
+(defun %make-formatter (&optional (preferences (effective-preferences)))
   "An NSDateFormatter laid out like the system clock, but fixed to UTC."
   (objc:ensure-objc-initialized)
   (let* ((locale (objc:invoke "NSLocale" "currentLocale"))
@@ -149,10 +208,21 @@ side, and the menu bar has that same wider gap before the time."
                  (objc:invoke "NSTimeZone" "timeZoneWithAbbreviation:" "UTC"))
     formatter))
 
-(defun ensure-formatter (&key rebuild)
-  "The cached formatter, building it if there is none or REBUILD is true."
-  (when (or rebuild (null *formatter*))
-    (setf *formatter* (objc:retain (%make-formatter))))
+(defun ensure-formatter (&key rebuild (preferences (effective-preferences)))
+  "The cached formatter, rebuilt when there is none, when REBUILD is true, or
+when PREFERENCES differ from the ones it was built from.
+
+The last clause is what makes the clock follow a setting changed while it is
+running.  Polling rather than a notification, and that is a deliberate second
+choice: NSUserDefaultsDidChangeNotification is posted for changes made in THIS
+process, and the interesting change -- someone turning on 24-hour time in System
+Settings -- happens in another one.  Comparing the plists on a timer is
+unglamorous and actually works."
+  (when (or rebuild
+            (null *formatter*)
+            (not (equal preferences *formatter-preferences*)))
+    (setf *formatter* (objc:retain (%make-formatter preferences))
+          *formatter-preferences* preferences))
   *formatter*)
 
 (defun menu-bar-title (&optional (instant (now)))
@@ -167,5 +237,8 @@ of it."
     (let* ((seconds (+ (float (instant-seconds instant) 1d0)
                        (/ (instant-microseconds instant) 1000000d0)))
            (date (objc:invoke "NSDate" "dateWithTimeIntervalSince1970:" seconds))
-           (text (objc:invoke-into 'string (ensure-formatter) "stringFromDate:" date)))
-      (if *label* (concatenate 'string text *label*) text))))
+           (preferences (effective-preferences))
+           (text (objc:invoke-into 'string (ensure-formatter :preferences preferences)
+                                   "stringFromDate:" date))
+           (label (or *label* (and (getf preferences :label) " UTC"))))
+      (if label (concatenate 'string text label) text))))

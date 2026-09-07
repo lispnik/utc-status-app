@@ -54,6 +54,22 @@ changes, so the cost of the extra tick is a string comparison.")
 (defvar *title* nil "The last title written, so an unchanged one is not rewritten.")
 (defvar *running* nil "T while the application's run loop should keep going.")
 
+(defparameter +preference-recheck-ticks+ 20
+  "Ticks between re-reads of the clock's settings: 20 x 0.5s, so ten seconds.
+
+The settings live in another process's defaults domain, changed by System
+Settings, and nothing tells us when that happens -- see ENSURE-FORMATTER.  Ten
+seconds is far below anyone's patience for a preference to take effect and far
+above the cost of reading two small plists.")
+
+(defvar *ticks* 0 "Ticks since startup, for the preference re-check.")
+
+;;; Menu item tags.  The renderings take 0 upwards, so everything else is
+;;; negative and there is no arithmetic to get wrong when a rendering is added.
+(defconstant +tag-quit+ -1)
+(defconstant +tag-seconds+ -2)
+(defconstant +tag-label+ -3)
+
 ;;; The controller, whose methods are what AppKit calls ------------------------------
 
 (objc:define-objc-class controller ()
@@ -63,7 +79,26 @@ changes, so the cost of the extra tick is a string comparison.")
 (objc:define-objc-method ("tick:" :void)
     ((self controller) (timer objc:objc-object-pointer))
   (declare (ignore timer))
+  ;; Every tick redraws; every twentieth also asks whether the settings moved
+  ;; under us.  ENSURE-FORMATTER rebuilds only when they actually differ, so the
+  ;; usual case is two plist reads and an EQUAL.
+  (when (zerop (mod (incf *ticks*) +preference-recheck-ticks+))
+    (ensure-formatter))
   (update-title))
+
+(objc:define-objc-method ("toggleSeconds:" :void)
+    ((self controller) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (setf (preference +seconds-key+)
+        (if (getf (effective-preferences) :seconds) :off :on))
+  (retitle-now))
+
+(objc:define-objc-method ("toggleLabel:" :void)
+    ((self controller) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (setf (preference +label-key+)
+        (if (getf (effective-preferences) :label) :off :on))
+  (retitle-now))
 
 (objc:define-objc-method ("copyRendering:" :void)
     ((self controller) (sender objc:objc-object-pointer))
@@ -91,6 +126,17 @@ changes, so the cost of the extra tick is a string comparison.")
   (stop-the-application))
 
 ;;; The clock ------------------------------------------------------------------------
+
+(defun retitle-now ()
+  "Rebuild the formatter and repaint the title immediately.
+
+For the two menu toggles: waiting up to ten seconds for the periodic re-check
+would make a menu item look broken, and the change is ours so there is nothing
+to poll for."
+  (ensure-formatter :rebuild t)
+  (setf *title* nil)                    ; force the write, not just the compare
+  (update-title)
+  (refresh-menu))
 
 (defun update-title (&optional (instant (now)))
   "Write INSTANT into the menu-bar button, if it reads differently than last time."
@@ -130,7 +176,12 @@ changes, so the cost of the extra tick is a string comparison.")
                                       :tag index)))
     (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
     (objc:invoke menu "addItem:"
-                 (%menu-item "Quit" "quit:" target :tag -1))
+                 (%menu-item "Show Seconds" "toggleSeconds:" target :tag +tag-seconds+))
+    (objc:invoke menu "addItem:"
+                 (%menu-item "Show UTC Label" "toggleLabel:" target :tag +tag-label+))
+    (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
+    (objc:invoke menu "addItem:"
+                 (%menu-item "Quit" "quit:" target :tag +tag-quit+))
     (objc:invoke menu "setDelegate:" target)
     menu))
 
@@ -140,13 +191,22 @@ changes, so the cost of the extra tick is a string comparison.")
 The menu is its own documentation this way: every line is a live example of the
 format, and the line you click is the string you get."
   (when menu
-    (let ((instant (now)))
+    (let ((instant (now))
+          (preferences (effective-preferences)))
       (loop for rendering in +renderings+
             for index from 0
             for item = (objc:invoke menu "itemWithTag:" index)
             unless (cffi:null-pointer-p (objc:objc-object-pointer item))
               do (objc:invoke item "setTitle:"
-                              (render instant (rendering-key rendering)))))))
+                              (render instant (rendering-key rendering))))
+      ;; NSControlStateValueOn is 1 and Off is 0.  A checkmark rather than a
+      ;; title that says "on", because a menu item that reports its own state is
+      ;; what a person expects to be able to click.
+      (loop for (tag key) in (list (list +tag-seconds+ :seconds)
+                                   (list +tag-label+ :label))
+            for item = (objc:invoke menu "itemWithTag:" tag)
+            unless (cffi:null-pointer-p (objc:objc-object-pointer item))
+              do (objc:invoke item "setState:" (if (getf preferences key) 1 0))))))
 
 ;;; Running ---------------------------------------------------------------------------
 
