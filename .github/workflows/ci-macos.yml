@@ -10,7 +10,8 @@
 # ocicl.csv, and none from ours.  Restoring in the wrong directory installs
 # nothing and fails later with a system that cannot be found.
 #
-# objc is tracked at master rather than pinned to a tag.  The two are developed
+# Both dependencies are tracked at their default branch rather than pinned to a
+# tag.  The two are developed
 # together, so a break in objc that breaks this application is something worth
 # being told about; the cost is that this badge can go red for a change made in
 # another repository.  Pin OBJC_REF below if that trade stops being worth it.
@@ -39,7 +40,11 @@ env:
   OBJC_REPO: lispnik/objc
   OBJC_REF: master
   MACOS_APP_REPO: lispnik/asdf-macos-app
-  MACOS_APP_REF: master
+  # main, not master.  The three repositories do not agree on a default branch
+  # name, and assuming they did cost a CI run: actions/checkout does not say
+  # "no such branch", it retries the fetch three times and then fails with
+  # `git' failed with exit code 1.
+  MACOS_APP_REF: main
 
 jobs:
   test:
