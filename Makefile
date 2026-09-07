@@ -6,6 +6,10 @@
 #   make run        build and run the application
 #   make deps       restore ocicl-vendored dependencies
 #   make repl       an SBCL with the library loaded
+#   make install    copy the binary to $(PREFIX)/bin
+#   make install-agent    install and start it at login, via launchd
+#   make uninstall-agent  stop it and remove the LaunchAgent
+#   make agent-status     what launchd thinks of it
 #   make clean      remove the binary, fasls, and this tree's ASDF cache
 #
 # The objc bindings are not on ocicl -- they are a sibling checkout -- so every
@@ -14,6 +18,16 @@
 
 LISP ?= sbcl
 OBJC_DIR ?= $(HOME)/Projects/common-lisp/objc
+
+PREFIX ?= $(HOME)/.local
+LOGS ?= $(HOME)/Library/Logs
+LABEL = com.lispnik.utc-status
+AGENT_DIR = $(HOME)/Library/LaunchAgents
+AGENT = $(AGENT_DIR)/$(LABEL).plist
+# launchd's per-user GUI domain.  `gui/<uid>' and not `user/<uid>': the latter
+# exists whether or not anyone is logged in graphically, and a status item put
+# there has no menu bar to appear in.
+DOMAIN = gui/$(shell id -u)
 
 # :IGNORE-INHERITED-CONFIGURATION so a missing dependency fails here rather than
 # resolving to whatever happens to be in the developer's ~/.sbclrc -- the same
@@ -25,7 +39,8 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(OBJC_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: all build test test-clipboard run deps repl env clean
+.PHONY: all build test test-clipboard run deps repl env clean \
+        install uninstall install-agent uninstall-agent agent-status
 
 all: build
 
@@ -72,6 +87,46 @@ repl:
 	  --eval '(require :asdf)' \
 	  --eval '$(REGISTRY)' \
 	  --eval '(asdf:load-system :utc-status-app)'
+
+# Installing ------------------------------------------------------------------
+#
+# The agent points at $(PREFIX)/bin rather than at ./bin, so that `make clean'
+# -- or moving this checkout -- does not leave launchd trying to start a binary
+# that is no longer there.
+
+install: build
+	@mkdir -p $(PREFIX)/bin
+	cp bin/utc-status $(PREFIX)/bin/utc-status
+	@echo "installed $(PREFIX)/bin/utc-status"
+
+uninstall:
+	rm -f $(PREFIX)/bin/utc-status
+
+$(AGENT): etc/$(LABEL).plist.in
+	@mkdir -p $(AGENT_DIR) $(LOGS)
+	sed -e 's|@BINARY@|$(PREFIX)/bin/utc-status|g' \
+	    -e 's|@LOGS@|$(LOGS)|g' \
+	    etc/$(LABEL).plist.in > $@
+	@plutil -lint $@
+
+# bootout before bootstrap, and ignore its failure: bootstrapping a label that
+# is already loaded is an error ("service already loaded"), so an install that
+# cannot be repeated is an install that breaks the second time you run it.
+install-agent: install $(AGENT)
+	-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null
+	launchctl bootstrap $(DOMAIN) $(AGENT)
+	@echo "loaded $(LABEL); it will start at login, and is running now"
+	@echo "logs: $(LOGS)/utc-status.log"
+
+uninstall-agent:
+	-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null
+	rm -f $(AGENT)
+	@echo "removed $(LABEL)"
+
+agent-status:
+	@launchctl print $(DOMAIN)/$(LABEL) 2>/dev/null \
+	  | grep -E "state|program|last exit|runs" \
+	  || echo "$(LABEL) is not loaded"
 
 clean:
 	rm -f bin/utc-status

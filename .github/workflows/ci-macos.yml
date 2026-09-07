@@ -96,6 +96,23 @@ jobs:
         working-directory: utc-status-app
         run: make env OBJC_DIR="$GITHUB_WORKSPACE/objc"
 
+      - name: Lint the LaunchAgent
+        # A malformed plist does not fail loudly: launchd declines to load it and
+        # the application simply never starts at login, with nothing in the log
+        # to say so.  plutil is the only thing that catches it early, and it is
+        # run against the RENDERED plist rather than the template, because the
+        # substitution is where a stray quote would get in.
+        working-directory: utc-status-app
+        run: |
+          plutil -lint etc/com.lispnik.utc-status.plist.in
+          make "$PWD/rendered.plist" AGENT="$PWD/rendered.plist" AGENT_DIR="$PWD" \
+            OBJC_DIR="$GITHUB_WORKSPACE/objc"
+          plutil -lint rendered.plist
+          plutil -p rendered.plist
+          # Every placeholder must be gone: one left behind is an absolute path
+          # that does not exist, which launchd reports as nothing at all.
+          ! grep -q "@" rendered.plist || { echo "unsubstituted placeholder" >&2; exit 1; }
+
       - name: Run tests
         # RUN-TESTS returns the status; FIVEAM:RUN! alone would exit 0 on a
         # failing suite, which is how a CI run goes green on red tests.

@@ -1,3 +1,4 @@
 bin/
 *.fasl
 ocicl/
+rendered.plist

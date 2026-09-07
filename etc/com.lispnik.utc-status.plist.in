@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A LaunchAgent, not a LaunchDaemon.  An agent runs in the user's GUI session,
+  which is the only place a status item can exist; a daemon runs before login,
+  in no session, with no menu bar to put anything in.
+
+  @BINARY@ and @LOGS@ are filled in by `make install-agent', because a plist
+  cannot expand ~ or $HOME -- every path in one must be absolute, and a plist
+  with a relative path fails silently by never starting.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lispnik.utc-status</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@BINARY@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    Restart on a crash, but NOT when the application exits cleanly.
+
+    A bare <true/> here would be the obvious thing and would be a trap: choosing
+    Quit from the menu exits 0, and launchd would put the item straight back in
+    the menu bar.  A Quit that does not quit is worse than no Quit at all.
+    SuccessfulExit false means "keep it alive only while it keeps failing",
+    which is what a menu-bar application actually wants.
+  -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!--
+    Ten seconds between restarts is launchd's default and is left alone
+    deliberately: if the binary is broken, a throttled loop is a line in the log
+    every ten seconds rather than a spin.
+  -->
+
+  <key>StandardOutPath</key>
+  <string>@LOGS@/utc-status.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGS@/utc-status.log</string>
+
+  <!--
+    Interactive rather than the Background default: Background asks for
+    throttled I/O and lowered CPU priority, which is right for an indexer and
+    wrong for something whose whole job is to redraw a clock on time.
+  -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

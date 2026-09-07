@@ -73,6 +73,44 @@ $ ./bin/utc-status --print basic
 20260906T020523Z
 ```
 
+## Starting it at login
+
+```
+make install-agent      # install to ~/.local/bin and load the LaunchAgent
+make agent-status       # what launchd thinks of it
+make uninstall-agent    # stop it and remove the agent
+```
+
+A **LaunchAgent**, not a LaunchDaemon: an agent runs in your GUI session, which
+is the only place a status item can exist. A daemon runs before login, in no
+session, with no menu bar to put anything in.
+
+Three details in `etc/com.lispnik.utc-status.plist.in` are deliberate:
+
+**`KeepAlive` is `{SuccessfulExit: false}`, not `true`.** A bare `true` is the
+obvious thing and is a trap: choosing Quit from the menu exits 0, and launchd
+would put the item straight back in the menu bar. A Quit that does not quit is
+worse than no Quit at all. This restarts it only while it keeps *failing*.
+
+**The agent points at `$(PREFIX)/bin`, not at `./bin`.** `make install-agent`
+copies the binary to `~/.local/bin` first, so that `make clean` — or moving this
+checkout — does not leave launchd trying to start something that is no longer
+there.
+
+**Every path in it is absolute.** A plist cannot expand `~` or `$HOME`, and one
+with a relative path fails by never starting. That is why the file is a template
+with `@BINARY@` and `@LOGS@` filled in at install time rather than a plist you
+copy.
+
+`install-agent` boots the label out before bootstrapping it, and ignores the
+failure: bootstrapping a label that is already loaded is an error, so without
+that the second `make install-agent` would fail.
+
+Output goes to `~/Library/Logs/utc-status.log`. It is normally empty — if the
+clock is not in your menu bar, that file and `make agent-status` are the two
+places to look, along with [the note about a crowded menu
+bar](#known-it-may-not-appear-on-a-crowded-menu-bar).
+
 ## The renderings
 
 | Key | Example | For |
