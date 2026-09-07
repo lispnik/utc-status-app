@@ -31,6 +31,7 @@ both and the defaults line up:
 
 ```
 git clone https://github.com/lispnik/objc.git
+git clone https://github.com/lispnik/asdf-macos-app.git   # only for `make app'
 git clone https://github.com/lispnik/utc-status-app.git
 cd objc && ocicl install     # every dependency of BOTH projects is listed here
 cd ../utc-status-app && make
@@ -39,7 +40,8 @@ cd ../utc-status-app && make
 The Makefile builds a source registry from this tree plus that one, with
 `:ignore-inherited-configuration` so a missing dependency fails loudly rather
 than resolving to whatever is in your `~/.sbclrc`. `OBJC_DIR` overrides where it
-looks and defaults to `~/Projects/common-lisp/objc`.
+looks and defaults to `~/Projects/common-lisp/objc`; `MACOS_APP_DIR` does the
+same for asdf-macos-app, which only `make app` needs.
 
 `ocicl install` belongs in the **objc** checkout: this project has no `ocicl.csv`
 of its own, and every Lisp dependency it has — cffi, alexandria, closer-mop,
@@ -73,13 +75,89 @@ $ ./bin/utc-status --print basic
 20260906T020523Z
 ```
 
+## The .app bundle
+
+```
+make app             # build "build/UTC Status.app"
+make install-app     # copy it to ~/Applications
+```
+
+Built by [asdf-macos-app](https://github.com/lispnik/asdf-macos-app), which is a
+third sibling checkout (`MACOS_APP_DIR`, defaulting to
+`~/Projects/common-lisp/asdf-macos-app`). The bundle exists for one key:
+
+```
+"LSUIElement" => true
+```
+
+That is what tells the Dock and the application switcher to leave it alone, and
+it lives in an `Info.plist`, which a bare executable does not have. `run` sets
+the activation policy to Accessory at startup anyway — that is what makes the
+loose binary work at all — but doing it in code means the Dock icon exists for
+the instant before the policy is set. Declared beats done.
+
+The bare binary is kept rather than replaced: `utc-status --print seconds` is
+what it is for, and a `.app` is an awkward thing to put in a shell pipeline —
+literally so, because the bundle redirects its own stdio (see below).
+
+**`Contents/Frameworks/` is empty, and that is correct.** asdf-macos-app copies
+the dylibs CFFI reports so a bundle is self-contained; objc binds
+`/usr/lib/libobjc.A.dylib` and the system frameworks, which are the OS's and
+must not be copied in. An empty Frameworks directory here is the right answer,
+not a missed step.
+
+**The bundle is unsigned, and not by preference.** An SBCL image cannot be
+codesigned on this toolchain at all:
+
+```
+$ codesign --force --sign - bin/utc-status
+bin/utc-status: replacing existing signature
+bin/utc-status: main executable failed strict validation
+```
+
+`save-lisp-and-die` appends the core to a Mach-O that Homebrew already shipped
+linker-signed, and codesign then refuses the file — for `--sign -` as much as for
+a Developer ID, and whether or not the old signature is removed first. Measured
+on SBCL 2.6.8/arm64 on the bare binary as well as in a bundle, so it is the image
+and not this build. asdf-macos-app names this as the most fragile part of its
+pipeline and is right to.
+
+The consequence is bounded: the bundle **launches** — the dumped executable keeps
+the runtime's own ad-hoc signature, which macOS accepts locally — but it cannot
+be notarised, so it cannot be handed to anyone else. Set
+`:code-signing-identity` in `utc-status-app.asd` when that is solved upstream;
+nothing else needs to change.
+
+**The bundled executable does not print to your terminal.** asdf-macos-app's
+toplevel redirects stdio to `~/Library/Logs/UTC Status.log`, because a
+Finder-launched process has nowhere else to write. So this looks like it does
+nothing:
+
+```
+$ "build/UTC Status.app/Contents/MacOS/utc-status" --print seconds
+$ tail -1 ~/Library/Logs/"UTC Status.log"
+2026-09-07T17:19:10Z
+```
+
+`MACOS_APP_LOG` sends that somewhere else. Use `bin/utc-status` for the command
+line; the bundle is the GUI.
+
+That redirection found a real bug in this application, which is why CI asserts on
+it: `main` called `sb-ext:exit` without flushing, and against a buffered log
+stream the output went nowhere at all — not to the terminal, not to the log.
+
 ## Starting it at login
 
 ```
-make install-agent      # install to ~/.local/bin and load the LaunchAgent
-make agent-status       # what launchd thinks of it
-make uninstall-agent    # stop it and remove the agent
+make install-agent       # start the bare binary at login
+make install-app-agent   # start the .app bundle at login instead
+make agent-status        # what launchd thinks of it
+make uninstall-agent     # stop it and remove the agent
 ```
+
+Either works; the bundle is the better of the two, because it gets `LSUIElement`
+from its `Info.plist` rather than only from the activation policy set at startup.
+Both use the same plist template, with `EXEC` deciding what launchd starts.
 
 A **LaunchAgent**, not a LaunchDaemon: an agent runs in your GUI session, which
 is the only place a status item can exist. A daemon runs before login, in no

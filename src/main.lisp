@@ -25,6 +25,18 @@ descending resolution, and choosing one copies it to the clipboard.")
   (let ((tail (member name arguments :test #'string=)))
     (second tail)))
 
+(defun finish-and-exit (code)
+  "Flush and exit with CODE.
+
+The flush is not belt and braces.  Inside an .app bundle the toplevel redirects
+standard output to a file, and a buffered file stream is not the terminal: what
+SB-EXT:EXIT does with a half-full buffer is not something to rely on.  Measured
+-- `UTC Status.app/Contents/MacOS/utc-status --print seconds' printed nothing,
+to the terminal or to the log, until this was here."
+  (finish-output *standard-output*)
+  (finish-output *error-output*)
+  (sb-ext:exit :code code))
+
 (defun main ()
   "The binary's entry point.
 
@@ -37,7 +49,7 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
           ((or (member "--help" arguments :test #'string=)
                (member "-h" arguments :test #'string=))
            (write-line +usage+)
-           (sb-ext:exit :code 0))
+           (finish-and-exit 0))
           ((member "--list" arguments :test #'string=)
            (let ((instant (now)))
              (dolist (rendering +renderings+)
@@ -45,20 +57,20 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
                        (string-downcase (rendering-key rendering))
                        (render instant (rendering-key rendering))
                        (rendering-description rendering))))
-           (sb-ext:exit :code 0))
+           (finish-and-exit 0))
           ((member "--print" arguments :test #'string=)
            (let* ((name (%argument "--print" arguments))
                   (key (and name (intern (string-upcase name) :keyword))))
              (unless (and key (find-rendering key))
                (format *error-output* "~&No such rendering: ~A.  Try --list.~%" name)
-               (sb-ext:exit :code 2))
+               (finish-and-exit 2))
              (write-line (render-now key)))
-           (sb-ext:exit :code 0))
+           (finish-and-exit 0))
           (t
            (run :timeout (let ((seconds (%argument "--timeout" arguments)))
                            (when seconds (parse-integer seconds)))
                 :label (%argument "--label" arguments))
-           (sb-ext:exit :code 0)))
+           (finish-and-exit 0)))
       ;; `utc-status --list | head' closes the pipe under us, and complaining
       ;; about it is noise: every well-behaved command-line tool exits quietly
       ;; when its reader has gone away.  Caught before the general handler
@@ -66,4 +78,4 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
       (stream-error () (sb-ext:exit :code 0 :abort t))
       (error (condition)
         (format *error-output* "~&utc-status: ~A~%" condition)
-        (sb-ext:exit :code 1)))))
+        (finish-and-exit 1)))))

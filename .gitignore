@@ -2,3 +2,6 @@ bin/
 *.fasl
 ocicl/
 rendered.plist
+build/
+bundle.log
+.DS_Store

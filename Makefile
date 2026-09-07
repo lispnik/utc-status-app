@@ -1,13 +1,16 @@
 # Makefile for utc-status-app.
 #
 #   make            build bin/utc-status
+#   make app        build "build/UTC Status.app"
 #   make test       run the FiveAM suite
 #   make env        print what the layout code decided on this machine
 #   make run        build and run the application
 #   make deps       restore ocicl-vendored dependencies
 #   make repl       an SBCL with the library loaded
 #   make install    copy the binary to $(PREFIX)/bin
+#   make install-app      copy the bundle to $(APPS)
 #   make install-agent    install and start it at login, via launchd
+#   make install-app-agent  the same, but starting the .app bundle
 #   make uninstall-agent  stop it and remove the LaunchAgent
 #   make agent-status     what launchd thinks of it
 #   make clean      remove the binary, fasls, and this tree's ASDF cache
@@ -18,8 +21,13 @@
 
 LISP ?= sbcl
 OBJC_DIR ?= $(HOME)/Projects/common-lisp/objc
+MACOS_APP_DIR ?= $(HOME)/Projects/common-lisp/asdf-macos-app
 
 PREFIX ?= $(HOME)/.local
+APPS ?= $(HOME)/Applications
+# What the LaunchAgent will start.  The plain binary by default; `make
+# install-app-agent' points it at the bundle instead.
+EXEC ?= $(PREFIX)/bin/utc-status
 LOGS ?= $(HOME)/Library/Logs
 LABEL = com.lispnik.utc-status
 AGENT_DIR = $(HOME)/Library/LaunchAgents
@@ -37,14 +45,32 @@ REGISTRY = (asdf:initialize-source-registry \
               (list :source-registry \
                     (list :tree (truename "./")) \
                     (list :tree (truename "$(OBJC_DIR)")) \
+                    (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: all build test test-clipboard run deps repl env clean \
-        install uninstall install-agent uninstall-agent agent-status
+.PHONY: agent-plist all build app test test-clipboard run deps repl env clean \
+        install uninstall install-app install-agent install-app-agent \
+        uninstall-agent agent-status
 
 all: build
 
 build: bin/utc-status
+
+# "build/UTC Status.app" cannot be a Make target: the space makes it two words to
+# every rule.  So the bundle is phony and its freshness is tracked by a stamp,
+# which is also what keeps `make app' from rebuilding a 46MB image every time.
+APP = build/UTC Status.app
+APP_STAMP = build/.app-stamp
+
+app: $(APP_STAMP)
+
+$(APP_STAMP): utc-status-app.asd $(wildcard src/*.lisp)
+	$(LISP) --non-interactive --no-userinit --no-sysinit \
+	  --eval '(require :asdf)' \
+	  --eval '$(REGISTRY)' \
+	  --eval '(asdf:make :utc-status-app/bundle)'
+	@touch $(APP_STAMP)
+	@echo "built $(APP)"
 
 bin/utc-status: utc-status-app.asd $(wildcard src/*.lisp)
 	@mkdir -p bin
@@ -102,21 +128,39 @@ install: build
 uninstall:
 	rm -f $(PREFIX)/bin/utc-status
 
-$(AGENT): etc/$(LABEL).plist.in
+install-app: app
+	@mkdir -p "$(APPS)"
+	rm -rf "$(APPS)/UTC Status.app"
+	cp -R "$(APP)" "$(APPS)/"
+	@echo "installed $(APPS)/UTC Status.app"
+
+# Phony rather than a file target: the plist's contents depend on EXEC, which is
+# a variable and not a prerequisite, so a file target would happily keep a plist
+# pointing at whatever was installed first.
+agent-plist:
 	@mkdir -p $(AGENT_DIR) $(LOGS)
-	sed -e 's|@BINARY@|$(PREFIX)/bin/utc-status|g' \
+	sed -e 's|@BINARY@|$(EXEC)|g' \
 	    -e 's|@LOGS@|$(LOGS)|g' \
-	    etc/$(LABEL).plist.in > $@
-	@plutil -lint $@
+	    etc/$(LABEL).plist.in > $(AGENT)
+	@plutil -lint $(AGENT)
 
 # bootout before bootstrap, and ignore its failure: bootstrapping a label that
 # is already loaded is an error ("service already loaded"), so an install that
 # cannot be repeated is an install that breaks the second time you run it.
-install-agent: install $(AGENT)
+install-agent: install agent-plist
 	-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null
 	launchctl bootstrap $(DOMAIN) $(AGENT)
 	@echo "loaded $(LABEL); it will start at login, and is running now"
 	@echo "logs: $(LOGS)/utc-status.log"
+
+# The bundle rather than the bare binary: same launchd machinery, and the app
+# gets LSUIElement from its Info.plist rather than only from the activation
+# policy set at startup.
+install-app-agent: install-app
+	@$(MAKE) agent-plist EXEC="$(APPS)/UTC Status.app/Contents/MacOS/utc-status"
+	-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null
+	launchctl bootstrap $(DOMAIN) $(AGENT)
+	@echo "loaded $(LABEL), starting the bundle at login"
 
 uninstall-agent:
 	-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null
@@ -130,5 +174,6 @@ agent-status:
 
 clean:
 	rm -f bin/utc-status
+	rm -rf build
 	rm -rf *.fasl
 	rm -rf $(HOME)/.cache/common-lisp/*/$(CURDIR)
