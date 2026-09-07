@@ -42,20 +42,17 @@
   :bundle-principal-class "NSApplication"
   :bundle-category "public.app-category.utilities"
   :bundle-copyright "MIT"
-  ;; UNSIGNED, and not by preference.  An SBCL image cannot be codesigned on
-  ;; this toolchain at all: SAVE-LISP-AND-DIE appends the core to a Mach-O that
-  ;; Homebrew already shipped linker-signed, and codesign then refuses the file
-  ;; with "main executable failed strict validation" -- for --sign - as much as
-  ;; for a Developer ID, and whether or not the old signature is removed first.
-  ;; Measured on SBCL 2.6.8/arm64, on the bare binary as well as in a bundle, so
-  ;; it is the image and not this build.
+  ;; Ad hoc, and it works now.  It did not until asdf-macos-app stopped dumping
+  ;; an executable image: SAVE-LISP-AND-DIE :EXECUTABLE T appends the core past
+  ;; the end of the Mach-O and past the code signature, and codesign refuses the
+  ;; result with "main executable failed strict validation" -- for a Developer ID
+  ;; as much as for ad hoc.  The bundle now holds the SBCL runtime, which is an
+  ;; ordinary signable binary, with the core beside it as a sealed resource.
   ;;
-  ;; asdf-macos-app names this as the most fragile part of its pipeline and it
-  ;; is right.  The bundle still launches -- the dumped executable keeps the
-  ;; runtime's own ad hoc signature, which macOS accepts locally -- but it
-  ;; cannot be notarised, so it cannot be handed to anyone else.  Set an
-  ;; identity here when that is solved upstream; nothing else needs to change.
-  :code-signing-identity nil
+  ;; "-" is still ad hoc: enough to satisfy the hardened runtime locally, not
+  ;; enough to notarise.  Put a Developer ID here for that; nothing else needs
+  ;; to change, which is the point of the exercise.
+  :code-signing-identity "-"
   :bundle-output-directory "build/"
   :components ((:module "src"
                 :components ((:file "main")))))

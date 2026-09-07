@@ -91,11 +91,40 @@ to yes far more often than not."
 (defparameter +preferences-domain+ "com.lispnik.utc-status"
   "Where this application keeps its own settings.")
 
+(defun %bundle-identifier ()
+  "This process's bundle identifier, or NIL when it is not in a bundle."
+  (let* ((bundle (objc:invoke "NSBundle" "mainBundle"))
+         (identifier (objc:invoke bundle "bundleIdentifier")))
+    (unless (cffi:null-pointer-p (objc:objc-object-pointer identifier))
+      (objc:invoke-into 'string identifier "description"))))
+
+(defun %our-defaults ()
+  "NSUserDefaults for OUR OWN preferences, which is not the same object in and
+out of a bundle.
+
+-initWithSuiteName: RETURNS NIL FOR YOUR OWN BUNDLE IDENTIFIER.  A suite is
+another application's domain; asking for your own is meaningless, and Foundation
+says so and hands back nil rather than erroring:
+
+  Using your own bundle identifier as an NSUserDefaults suite name does not
+  make sense and will not work.
+
+The next message sent to that nil is the crash, and it happens only inside the
+bundle -- the loose binary has no identifier, so the suite is somebody else's
+and works.  Which is exactly the sort of bug that ships.
+
+So: -standardUserDefaults when our identifier is the bundle's, the named suite
+otherwise.  Both write com.lispnik.utc-status.plist, so a preference set by one
+is read by the other."
+  (if (equal (%bundle-identifier) +preferences-domain+)
+      (objc:invoke "NSUserDefaults" "standardUserDefaults")
+      (%defaults-for +preferences-domain+)))
+
 (defun preference (key)
   "Our setting for KEY as :ON, :OFF, or NIL for \"follow the system\"."
   (objc:ensure-objc-initialized)
   (objc:with-autorelease-pool ()
-    (let* ((defaults (%defaults-for +preferences-domain+))
+    (let* ((defaults (%our-defaults))
            (object (objc:invoke defaults "objectForKey:" key)))
       (unless (cffi:null-pointer-p (objc:objc-object-pointer object))
         (if (objc:invoke-bool defaults "boolForKey:" key) :on :off)))))
@@ -104,7 +133,7 @@ to yes far more often than not."
   "Set KEY to :ON or :OFF, or to NIL to go back to following the system."
   (objc:ensure-objc-initialized)
   (objc:with-autorelease-pool ()
-    (let ((defaults (%defaults-for +preferences-domain+)))
+    (let ((defaults (%our-defaults)))
       (if (null state)
           (objc:invoke defaults "removeObjectForKey:" key)
           (objc:invoke defaults "setBool:forKey:" (eq state :on) key))

@@ -106,27 +106,30 @@ the dylibs CFFI reports so a bundle is self-contained; objc binds
 must not be copied in. An empty Frameworks directory here is the right answer,
 not a missed step.
 
-**The bundle is unsigned, and not by preference.** An SBCL image cannot be
-codesigned on this toolchain at all:
+**The bundle is signed**, ad hoc, with the hardened runtime:
 
 ```
-$ codesign --force --sign - bin/utc-status
-bin/utc-status: replacing existing signature
-bin/utc-status: main executable failed strict validation
+$ codesign -dvv "build/UTC Status.app"
+CodeDirectory v=20500 flags=0x10002(adhoc,runtime)
+$ codesign --verify --deep --strict "build/UTC Status.app"   # exit 0
 ```
 
-`save-lisp-and-die` appends the core to a Mach-O that Homebrew already shipped
-linker-signed, and codesign then refuses the file — for `--sign -` as much as for
-a Developer ID, and whether or not the old signature is removed first. Measured
-on SBCL 2.6.8/arm64 on the bare binary as well as in a bundle, so it is the image
-and not this build. asdf-macos-app names this as the most fragile part of its
-pipeline and is right to.
+That did not work at first, and the reason is worth knowing if you build SBCL
+apps. `save-lisp-and-die :executable t` appends the core to the runtime's Mach-O
+*past* the code signature — `__LINKEDIT` and the signature both end at byte
+410,952 of a 47,782,952-byte image — and codesign refuses 47MB of trailing data
+it cannot cover, with `main executable failed strict validation`, for a Developer
+ID as much as for ad hoc.
 
-The consequence is bounded: the bundle **launches** — the dumped executable keeps
-the runtime's own ad-hoc signature, which macOS accepts locally — but it cannot
-be notarised, so it cannot be handed to anyone else. Set
-`:code-signing-identity` in `utc-status-app.asd` when that is solved upstream;
-nothing else needs to change.
+[asdf-macos-app](https://github.com/lispnik/asdf-macos-app) now ships the core as
+a sealed **resource** with the SBCL runtime as the executable and a symlink
+between them, which signs cleanly. Ad hoc is still only enough to launch
+locally; put a Developer ID in `utc-status-app-bundle.asd` to notarise, and
+nothing else changes.
+
+**The bundle prints SBCL's banner.** A separate core does, unless `--noinform`
+is passed, and LaunchServices passes nothing. It comes from the C runtime before
+Lisp starts, so nothing in Lisp can suppress it. It goes to the log.
 
 **The bundled executable does not print to your terminal.** asdf-macos-app's
 toplevel redirects stdio to `~/Library/Logs/UTC Status.log`, because a
