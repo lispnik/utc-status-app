@@ -4,6 +4,13 @@
 
 A macOS menu-bar clock showing UTC, written in Common Lisp.
 
+<img src="screenshot.png" width="347"
+     alt="The menu bar reading &quot;Tue Sep 8  20:32 UTC&quot;, with the menu open
+          below it listing eleven ISO 8601 renderings of the same instant —
+          from 2026-09-08T20:32:24.072998Z down to 2026 — then the compact,
+          week-date and ordinal forms, and the Show Seconds, Show UTC Label and
+          Start at Login items.">
+
 The title is the current time in UTC, laid out the way your system clock is laid
 out. Clicking it opens a menu of ISO 8601 renderings at descending resolution;
 choosing one copies that rendering of the current instant to the clipboard.
@@ -12,6 +19,10 @@ choosing one copies that rendering of the current instant to the clipboard.
 Sun Sep 6  02:05          <- ours, UTC
 Sat Sep 5  21:05          <- the system clock, local
 ```
+
+Same shape, different offset. The screenshot above has **Show UTC Label** turned
+on, which appends the ` UTC` — off by default, because the brief was the system
+clock's layout and a suffix is not that layout.
 
 Built on [objc](https://github.com/lispnik/objc), the LispWorks Objective-C
 interface reimplemented for SBCL. The status item, its menu, the timer and the
