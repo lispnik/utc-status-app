@@ -36,6 +36,10 @@ or a toggle changes it in one place and the arithmetic stays legible."
         (is (= (+ (length utc-status-app:+renderings+) ; one each
                   2                                    ; two separators
                   2                                    ; Show Seconds, Show UTC Label
+                  ;; Start at Login, only when there is a bundle to register.
+                  ;; The suite runs from a bare sbcl, so it is absent here --
+                  ;; stated rather than left as an arithmetic coincidence.
+                  (if (utc-status-app:login-item-available-p) 1 0)
                   1)                                   ; Quit
                (objc:invoke menu "numberOfItems")))
         (dolist (tag (list utc-status-app::+tag-seconds+
@@ -158,3 +162,27 @@ NSControlStateValueOn is 1, Off is 0."
         (objc:invoke target "toggleLabel:" item)
         (is-false (getf (utc-status-app:effective-preferences) :label)
                   "a second click did not turn it back off")))))
+
+(test the-login-item-is-offered-only-from-a-bundle
+  "SMAppService's -mainAppService describes THIS process's application, and a
+bare executable is not one: -status answers NotFound and there is nothing to
+register.  So the menu omits the item rather than offering one that always
+fails.
+
+The suite runs from a bare sbcl, which is exactly that case -- so this asserts
+the unavailable branch, and the bundle is where the other one is exercised."
+  (progn
+    (is (member (utc-status-app:login-item-status)
+                '(:enabled :not-registered :requires-approval :not-found))
+        "~S is not an SMAppServiceStatus" (utc-status-app:login-item-status))
+    (is (eq (eq (utc-status-app:login-item-status) :not-found)
+            (not (utc-status-app:login-item-available-p)))
+        "availability and :NOT-FOUND must be the same question")
+    (objc:with-autorelease-pool ()
+      (let* ((controller (make-instance 'utc-status-app::controller))
+             (target (objc:objc-object-pointer controller))
+             (menu (utc-status-app::build-menu target))
+             (item (objc:invoke menu "itemWithTag:" utc-status-app::+tag-login+)))
+        (is (eq (utc-status-app:login-item-available-p)
+                (not (cffi:null-pointer-p (objc:objc-object-pointer item))))
+            "the item is present exactly when registering is possible")))))

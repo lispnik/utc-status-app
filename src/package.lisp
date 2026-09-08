@@ -14,6 +14,9 @@
    #:clock-preferences #:effective-preferences #:preference
    #:clock-skeleton #:normalise-pattern #:menu-bar-title
    #:+seconds-key+ #:+label-key+
+   ;; Starting at login.
+   #:login-item-status #:login-item-available-p
+   #:register-login-item #:unregister-login-item #:bundle-path
    ;; The clipboard.
    #:copy-to-clipboard #:clipboard-string
    ;; The application.

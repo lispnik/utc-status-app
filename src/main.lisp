@@ -14,6 +14,9 @@
   utc-status --timeout 30    stop after 30 seconds, whatever happens
   utc-status --print KEY     print one rendering of the current instant and exit
   utc-status --list          list the renderings and exit
+  utc-status --login-status  say whether it is set to start at login, and exit
+  utc-status --login-add     add it to the login items, and exit
+  utc-status --login-remove  remove it from the login items, and exit
   utc-status --help          this
 
 With no arguments it puts a clock in the menu bar.  The clock is UTC, laid out
@@ -49,6 +52,21 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
           ((or (member "--help" arguments :test #'string=)
                (member "-h" arguments :test #'string=))
            (write-line +usage+)
+           (finish-and-exit 0))
+          ;; The only way to see this from a SHIPPED bundle: -mainAppService
+          ;; answers differently inside one than out, and there is no REPL in an
+          ;; application someone downloaded.
+          ((member "--login-status" arguments :test #'string=)
+           (format t "~&login item: ~(~A~)~@[  (~A)~]~%"
+                   (login-item-status)
+                   (unless (login-item-available-p)
+                     "not running from a bundle, so registering is not possible"))
+           (finish-and-exit 0))
+          ((member "--login-add" arguments :test #'string=)
+           (format t "~&login item: ~(~A~)~%" (register-login-item))
+           (finish-and-exit 0))
+          ((member "--login-remove" arguments :test #'string=)
+           (format t "~&login item: ~(~A~)~%" (unregister-login-item))
            (finish-and-exit 0))
           ((member "--list" arguments :test #'string=)
            (let ((instant (now)))

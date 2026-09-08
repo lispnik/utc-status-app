@@ -253,6 +253,39 @@ that can happen.
 
 ## Starting it at login
 
+The menu has a **Start at Login** item, which is the one to use: it appears in
+System Settings → General → Login Items, where the user can see it and switch it
+off, and it needs no Makefile target and no file written behind their back. It
+is offered only from the `.app` bundle — there is no `.app` for the login item
+list to point at otherwise.
+
+**There is no `Info.plist` key for this.** It is the first thing people look for,
+and there is no `LSStartAtLogin`: a login item is not declared, it is
+*registered* at run time by the application itself.
+
+**It uses `LSSharedFileList`, not `SMAppService`, and that is a considered
+choice.** `SMAppService` is what Apple documents for macOS 13 and later, and
+`-[SMAppService mainAppService]` answered `NotFound` here in every arrangement
+tried: from the loose binary, from the bundle in place, from `~/Applications`
+and from `/Applications`, launched directly and through LaunchServices,
+unsigned, Developer ID signed, and notarised and stapled. LaunchServices knew
+the application throughout — `lsregister -dump` lists it — and the system log
+recorded the call reaching `com.apple.libxpc.SMAppService` and answering
+`status: 3`, with no reason given.
+
+So this does what shipping applications do. **Hammerspoon and Syncthing both use
+`LSSharedFileList` and neither links ServiceManagement at all** — Syncthing's own
+selectors are `addAppAsLoginItem`, `deleteAppFromLoginItem` and
+`wasAppAddedAsLoginItem`. The API has been deprecated since 10.11 and it is what
+works.
+
+These are C functions rather than messages, so CFFI makes the five calls that
+have no Objective-C face — and toll-free bridging does the rest: a `CFURLRef` is
+an `NSURL` and a `CFArrayRef` is an `NSArray`, so the URL is built and the
+snapshot walked with ordinary `invoke`.
+
+The LaunchAgent is still here for the bare binary, which cannot be a login item:
+
 ```
 make install-agent       # start the bare binary at login
 make install-app-agent   # start the .app bundle at login instead

@@ -32,6 +32,7 @@ the menu's actions are Lisp methods on a Lisp-defined class."
                  (:file "iso")
                  (:file "layout")
                  (:file "clipboard")
+                 (:file "login-item")
                  (:file "app")))))
 
 (asdf:defsystem #:utc-status-app/app

@@ -69,6 +69,7 @@ above the cost of reading two small plists.")
 (defconstant +tag-quit+ -1)
 (defconstant +tag-seconds+ -2)
 (defconstant +tag-label+ -3)
+(defconstant +tag-login+ -4)
 
 ;;; The controller, whose methods are what AppKit calls ------------------------------
 
@@ -118,6 +119,18 @@ above the cost of reading two small plists.")
   ;; ones you would get by choosing them rather than the ones from whenever the
   ;; menu was built.
   (refresh-menu menu))
+
+(objc:define-objc-method ("toggleLoginItem:" :void)
+    ((self controller) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  ;; :REQUIRES-APPROVAL is not a failure and not a success: macOS took the
+  ;; registration and is waiting for the user to allow it in Settings.  Opening
+  ;; that pane is the only thing that can move it along, and saying nothing
+  ;; would leave a ticked menu item over an application that does not start.
+  (if (eq (login-item-status) :enabled)
+      (unregister-login-item)
+      (register-login-item))
+  (refresh-menu))
 
 (objc:define-objc-method ("quit:" :void)
     ((self controller) (sender objc:objc-object-pointer))
@@ -179,6 +192,13 @@ to poll for."
                  (%menu-item "Show Seconds" "toggleSeconds:" target :tag +tag-seconds+))
     (objc:invoke menu "addItem:"
                  (%menu-item "Show UTC Label" "toggleLabel:" target :tag +tag-label+))
+    ;; Offered only from a bundle.  -mainAppService describes THIS process's
+    ;; application, and the loose binary is not one -- so rather than a menu
+    ;; item that always fails, there is no menu item.
+    (when (login-item-available-p)
+      (objc:invoke menu "addItem:"
+                   (%menu-item "Start at Login" "toggleLoginItem:" target
+                               :tag +tag-login+)))
     (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
     (objc:invoke menu "addItem:"
                  (%menu-item "Quit" "quit:" target :tag +tag-quit+))
@@ -206,7 +226,13 @@ format, and the line you click is the string you get."
                                    (list +tag-label+ :label))
             for item = (objc:invoke menu "itemWithTag:" tag)
             unless (cffi:null-pointer-p (objc:objc-object-pointer item))
-              do (objc:invoke item "setState:" (if (getf preferences key) 1 0))))))
+              do (objc:invoke item "setState:" (if (getf preferences key) 1 0)))
+      ;; The login item's state is macOS's to report, not ours to remember:
+      ;; the user can switch it off in System Settings without telling us.
+      (let ((item (objc:invoke menu "itemWithTag:" +tag-login+)))
+        (unless (cffi:null-pointer-p (objc:objc-object-pointer item))
+          (objc:invoke item "setState:"
+                       (if (eq (login-item-status) :enabled) 1 0)))))))
 
 ;;; Running ---------------------------------------------------------------------------
 
