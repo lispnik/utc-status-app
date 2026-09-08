@@ -21,7 +21,7 @@ the timer and the pasteboard are all Objective-C objects driven from Lisp, and
 the menu's actions are Lisp methods on a Lisp-defined class."
   :author "Matthew Kennedy <burnsidemk@gmail.com>"
   :license "MIT"
-  :version "0.1.0"
+  :version "0.2.0"
   :serial t
   :depends-on (#:objc #:cffi)
   :components ((:module "src"

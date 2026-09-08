@@ -30,7 +30,7 @@
   :build-operation "macos-app-op"
   :depends-on (#:utc-status-app)
   :entry-point "utc-status-app:main"
-  :version "0.1.0"
+  :version "0.2.0"
   :bundle-identifier "com.lispnik.utc-status"
   :bundle-name "UTC Status"
   :bundle-executable "utc-status"
