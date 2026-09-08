@@ -100,6 +100,31 @@ The bare binary is kept rather than replaced: `utc-status --print seconds` is
 what it is for, and a `.app` is an awkward thing to put in a shell pipeline —
 literally so, because the bundle redirects its own stdio (see below).
 
+**The icon is drawn, not checked in.** `make icon` runs `tools/icon.lisp`, which
+uses the same objc bindings the application is built on to draw a "TZ" monogram
+into an `NSBitmapImageRep` and write it out as a PNG; asdf-macos-app converts
+that to an `.icns` with `sips` and `iconutil` at build time. There is no binary
+artwork in the repository and changing the colour is an edit:
+
+```lisp
+(objc:invoke (color 0.10 0.13 0.22) "set")     ; the plate
+(draw-monogram "TZ" size :font-fraction 0.42
+                         :colour (color 0.98 0.85 0.45))
+```
+
+Two things that had to be got right, and both are the kind that produce a
+plausible wrong answer rather than an error. **A Lisp string is a CLASS NAME
+when it is the receiver** — `(objc:invoke "TZ" "sizeWithAttributes:" …)` asks
+for a class called `TZ` — so the text is converted with `string-to-ns-string`
+first. And **`-drawAtPoint:` positions the line box, not the ink**: a line box
+reserves room for descenders, which "TZ" has none of, so centring on the
+measured height hangs the letters visibly low. It centres on cap height above
+the baseline instead.
+
+Worth knowing where the icon is actually seen: `LSUIElement` means no Dock icon
+and no application-switcher entry, so it appears in Finder, Spotlight and "Open
+With", and nowhere else while the app runs.
+
 **`Contents/Frameworks/` is empty, and that is correct.** asdf-macos-app copies
 the dylibs CFFI reports so a bundle is self-contained; objc binds
 `/usr/lib/libobjc.A.dylib` and the system frameworks, which are the OS's and

@@ -41,6 +41,11 @@
   ;; application rather than being brought up halfway through our own startup.
   :bundle-principal-class "NSApplication"
   :bundle-category "public.app-category.utilities"
+  ;; Drawn by tools/icon.lisp with the objc bindings this application is built
+  ;; on -- see `make icon'.  asdf-macos-app converts the PNG to an .icns with
+  ;; sips and iconutil, so there is no binary artwork checked in and changing it
+  ;; is an edit rather than an asset pipeline.
+  :bundle-icon "res/icon.png"
   :bundle-copyright "MIT"
   ;; Ad hoc, and it works now.  It did not until asdf-macos-app stopped dumping
   ;; an executable image: SAVE-LISP-AND-DIE :EXECUTABLE T appends the core past

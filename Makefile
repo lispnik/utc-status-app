@@ -48,7 +48,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: agent-plist all build app test test-clipboard run deps repl env clean \
+.PHONY: agent-plist icon all build app test test-clipboard run deps repl env clean \
         install uninstall install-app install-agent install-app-agent \
         uninstall-agent agent-status
 
@@ -64,7 +64,7 @@ APP_STAMP = build/.app-stamp
 
 app: $(APP_STAMP)
 
-$(APP_STAMP): utc-status-app.asd $(wildcard src/*.lisp)
+$(APP_STAMP): utc-status-app-bundle.asd $(wildcard src/*.lisp) res/icon.png
 	$(LISP) --non-interactive --no-userinit --no-sysinit \
 	  --eval '(require :asdf)' \
 	  --eval '$(REGISTRY)' \
@@ -101,6 +101,21 @@ deps:
 # What the layout code decided on this machine.  Its own target so CI can report
 # it in one line, and so the source registry is defined once rather than being
 # spelled out again in a workflow.
+# The icon is drawn by tools/icon.lisp, using the objc bindings this application
+# is built on -- so there is no checked-in artwork and no asset pipeline, and
+# changing it is an edit.
+res/icon.png: tools/icon.lisp
+	@mkdir -p res
+	$(LISP) --non-interactive --no-userinit --no-sysinit \
+	  --eval '(require :asdf)' \
+	  --eval '$(REGISTRY)' \
+	  --eval '(asdf:load-system :objc)' \
+	  --load tools/icon.lisp \
+	  --eval '(utc-status-icon:render-icon "res/icon.png")'
+	@echo "drew res/icon.png"
+
+icon: res/icon.png
+
 env:
 	@$(LISP) --non-interactive --no-userinit --no-sysinit \
 	  --eval '(require :asdf)' \
