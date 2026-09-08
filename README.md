@@ -211,6 +211,46 @@ That redirection found a real bug in this application, which is why CI asserts o
 it: `main` called `sb-ext:exit` without flushing, and against a buffered log
 stream the output went nowhere at all — not to the terminal, not to the log.
 
+### Notarising
+
+```
+xcrun notarytool store-credentials utc-status \
+  --apple-id you@example.com --team-id Q47YS469F2      # once
+make notarize
+```
+
+Submits the signed bundle, waits for Apple's verdict, and staples the ticket
+into it. Stapled means it validates with no network round-trip, so the app opens
+on a Mac that is offline.
+
+```
+build/UTC Status.app: accepted
+source=Notarized Developer ID
+```
+
+**This is not the App Store.** Notarisation is an automated malware scan that
+lets an app *you* distribute — a download, a disk image — open without the
+"unidentified developer" refusal. Nothing is published, listed or reviewed. The
+App Store is a different channel with a different certificate, human review, and
+the App Sandbox — which this application could not adopt as it stands, since
+`allow-jit` and `allow-unsigned-executable-memory` are exactly what an SBCL
+image needs and exactly what the store refuses.
+
+`make notarize` guards two failures that are slow and silent respectively:
+
+- an **ad hoc** signature, which Apple refuses only after the upload;
+- an executable linking anything outside `/usr/lib` and `/System`, which
+  notarises perfectly well and then dies with a dyld error on a Mac that has no
+  Homebrew.
+
+Both guards were checked by feeding them the failure: an ad-hoc-signed copy of
+the bundle, and a Homebrew SBCL runtime that still links `libzstd`.
+
+**The ticket belongs to the bits, not the project.** `build/` is gitignored and
+`make clean` removes it, and a rebuild is unnotarised until it is submitted
+again. `make install-app` copies the notarised bundle to `~/Applications` before
+that can happen.
+
 ## Starting it at login
 
 ```

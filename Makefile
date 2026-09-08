@@ -8,6 +8,7 @@
 #   make deps       restore ocicl-vendored dependencies
 #   make repl       an SBCL with the library loaded
 #   make install    copy the binary to $(PREFIX)/bin
+#   make notarize         submit the signed bundle to Apple and staple the ticket
 #   make install-app      copy the bundle to $(APPS)
 #   make install-agent    install and start it at login, via launchd
 #   make install-app-agent  the same, but starting the .app bundle
@@ -30,6 +31,12 @@ APPS ?= $(HOME)/Applications
 EXEC ?= $(PREFIX)/bin/utc-status
 LOGS ?= $(HOME)/Library/Logs
 LABEL = com.lispnik.utc-status
+# The notarytool keychain profile, stored once with
+#   xcrun notarytool store-credentials $(NOTARY_PROFILE) \
+#     --apple-id <you> --team-id <your team>
+# which prompts for an app-specific password from appleid.apple.com -- not your
+# Apple ID password.
+NOTARY_PROFILE ?= utc-status
 AGENT_DIR = $(HOME)/Library/LaunchAgents
 AGENT = $(AGENT_DIR)/$(LABEL).plist
 # launchd's per-user GUI domain.  `gui/<uid>' and not `user/<uid>': the latter
@@ -48,7 +55,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: agent-plist icon all build app test test-clipboard run deps repl env clean \
+.PHONY: agent-plist icon notarize all build app test test-clipboard run deps repl env clean \
         install uninstall install-app install-agent install-app-agent \
         uninstall-agent agent-status
 
@@ -142,6 +149,35 @@ install: build
 
 uninstall:
 	rm -f $(PREFIX)/bin/utc-status
+
+# Submit to Apple's notary service and staple the ticket into the bundle.
+#
+# The two guards are here because both failures are slow and neither is obvious.
+# An AD HOC signature is refused by Apple, but only after the upload; and a
+# runtime that links Homebrew's libzstd notarises PERFECTLY WELL and then dies
+# with a dyld error on a Mac that has no Homebrew -- Apple checks the signature,
+# not whether your dylibs exist on someone else's disk.  Both are cheap to check
+# here and expensive to discover later.
+notarize: app
+	@codesign -dvv "$(APP)" 2>&1 | grep -q adhoc && { \
+	  echo "error: $(APP) is signed ad hoc, and Apple will refuse it." >&2; \
+	  echo "  set :code-signing-identity to a Developer ID in utc-status-app-bundle.asd" >&2; \
+	  exit 1; } || true
+	@otool -L "$(APP)/Contents/MacOS/utc-status" | tail -n +2 \
+	  | grep -v "^\s*/usr/lib/\|^\s*/System/" | grep . && { \
+	  echo "error: the executable links something outside /usr/lib and /System." >&2; \
+	  echo "  it will notarise and then fail to launch elsewhere; rebuild SBCL" >&2; \
+	  echo "  --without-sb-core-compression" >&2; \
+	  exit 1; } || true
+	$(LISP) --non-interactive --no-userinit --no-sysinit \
+	  --eval '(require :asdf)' \
+	  --eval '$(REGISTRY)' \
+	  --eval '(asdf:load-system :asdf-macos-app)' \
+	  --eval '(macos-app:notarize "$(APP)" :keychain-profile "$(NOTARY_PROFILE)")'
+	@echo
+	@echo "Gatekeeper:"
+	@spctl -a -vvv -t install "$(APP)"
+	@xcrun stapler validate "$(APP)"
 
 install-app: app
 	@mkdir -p "$(APPS)"
