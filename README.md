@@ -107,19 +107,33 @@ that to an `.icns` with `sips` and `iconutil` at build time. There is no binary
 artwork in the repository and changing the colour is an edit:
 
 ```lisp
-(objc:invoke (color 0.10 0.13 0.22) "set")     ; the plate
-(draw-monogram "TZ" size :font-fraction 0.42
+(objc:invoke (color 0.10 0.13 0.22) "set")            ; the plate
+(draw-clock size :colour (color 0.42 0.46 0.56))      ; ring, marks, two hands
+(draw-monogram "TZ" size :font-fraction 0.32
                          :colour (color 0.98 0.85 0.45))
 ```
 
-Two things that had to be got right, and both are the kind that produce a
-plausible wrong answer rather than an error. **A Lisp string is a CLASS NAME
+The clock reads ten past ten, which is what every clock in every advertisement
+shows and for the same reason: the hands sit high and apart, framing what is in
+the middle rather than striking through it. No second hand — a third hand at
+this size is a smudge, and this clock is not running.
+
+Three things had to be got right, and each produces a plausible wrong answer
+rather than an error. **Clock angles run clockwise from twelve while Cocoa's y
+axis runs up**, so the usual `(cos, sin)` pairing is wrong twice over — and
+wrong in a way that still draws a perfectly convincing clock, showing the wrong
+time, mirrored. `x` takes the sine and `y` the cosine. **A Lisp string is a CLASS NAME
 when it is the receiver** — `(objc:invoke "TZ" "sizeWithAttributes:" …)` asks
 for a class called `TZ` — so the text is converted with `string-to-ns-string`
 first. And **`-drawAtPoint:` positions the line box, not the ink**: a line box
 reserves room for descenders, which "TZ" has none of, so centring on the
 measured height hangs the letters visibly low. It centres on cap height above
 the baseline instead.
+
+And a composition note that only showed up on screen: at the monogram's original
+size the letters swallowed both hands entirely, leaving a ring with tick marks —
+which is not a clock. The face is larger and the letters smaller than they first
+were, so the hand tips clear the letterforms.
 
 Worth knowing where the icon is actually seen: `LSUIElement` means no Dock icon
 and no application-switcher entry, so it appears in Finder, Spotlight and "Open
