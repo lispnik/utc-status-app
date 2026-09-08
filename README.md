@@ -155,9 +155,19 @@ TeamIdentifier=Q47YS469F2
 $ codesign --verify --deep --strict "build/UTC Status.app"   # exit 0
 ```
 
-Building it yourself means putting your own identity in
-`utc-status-app-bundle.asd`; `"-"` there gives an ad hoc signature, which runs
-locally and cannot be notarised.
+The identity comes from the environment and defaults to **ad hoc**, so a clone
+builds anywhere:
+
+```
+make app                                                    # ad hoc
+make app SIGN_IDENTITY="Developer ID Application: You (TEAMID)"
+```
+
+Hardcoding a Developer ID in the `.asd` broke CI the moment it was tried --
+`codesign` answers "no identity found" for a certificate that is not in the
+keychain, and no build should require one. Ad hoc runs locally and cannot be
+notarised, which is the right default; notarising is the deliberate act that
+supplies the identity.
 
 **It needs an SBCL built `--without-sb-core-compression`.** SBCL enables core
 compression whenever it finds zstd, and the runtime then links

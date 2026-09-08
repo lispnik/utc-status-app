@@ -37,6 +37,11 @@ LABEL = com.lispnik.utc-status
 # which prompts for an app-specific password from appleid.apple.com -- not your
 # Apple ID password.
 NOTARY_PROFILE ?= utc-status
+# The codesigning identity.  Empty means ad hoc, which builds anywhere and
+# cannot be notarised; a Developer ID makes the bundle distributable.  Reaches
+# the .asd through the environment -- see utc-status-app-bundle.asd.
+SIGN_IDENTITY ?=
+export UTC_STATUS_SIGN_IDENTITY = $(SIGN_IDENTITY)
 AGENT_DIR = $(HOME)/Library/LaunchAgents
 AGENT = $(AGENT_DIR)/$(LABEL).plist
 # launchd's per-user GUI domain.  `gui/<uid>' and not `user/<uid>': the latter
@@ -161,7 +166,7 @@ uninstall:
 notarize: app
 	@codesign -dvv "$(APP)" 2>&1 | grep -q adhoc && { \
 	  echo "error: $(APP) is signed ad hoc, and Apple will refuse it." >&2; \
-	  echo "  set :code-signing-identity to a Developer ID in utc-status-app-bundle.asd" >&2; \
+	  echo "  build with SIGN_IDENTITY=\"Developer ID Application: You (TEAMID)\"" >&2; \
 	  exit 1; } || true
 	@otool -L "$(APP)/Contents/MacOS/utc-status" | tail -n +2 \
 	  | grep -v "^\s*/usr/lib/\|^\s*/System/" | grep . && { \

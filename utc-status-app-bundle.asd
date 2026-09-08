@@ -47,14 +47,29 @@
   ;; is an edit rather than an asset pipeline.
   :bundle-icon "res/icon.png"
   :bundle-copyright "MIT"
-  ;; A Developer ID, which is what notarisation requires -- Apple refuses an ad
-  ;; hoc signature outright.  This works at all only because asdf-macos-app
-  ;; stopped dumping an executable image: SAVE-LISP-AND-DIE :EXECUTABLE T
-  ;; appends the core past the end of the Mach-O and past the code signature,
-  ;; and codesign refuses the result with "main executable failed strict
-  ;; validation".  The bundle now holds the SBCL runtime, which is an ordinary
-  ;; signable binary, with the core beside it as a sealed resource.
-  :code-signing-identity "Developer ID Application: Matthew Kennedy (Q47YS469F2)"
+  ;; Read from the environment, defaulting to ad hoc.
+  ;;
+  ;; Hardcoding a Developer ID here broke CI immediately and would break anyone
+  ;; else who cloned this: `codesign' answers "no identity found" for a
+  ;; certificate that is not in the keychain, and there is no reason a build
+  ;; should require one.  Ad hoc runs locally and cannot be notarised, which is
+  ;; the right default; notarising is the deliberate act that supplies the
+  ;; identity.
+  ;;
+  ;;   make app SIGN_IDENTITY="Developer ID Application: You (TEAMID)"
+  ;;   make notarize SIGN_IDENTITY=...
+  ;;
+  ;; #. rather than a plain call: ASDF does not evaluate a defsystem initarg, so
+  ;; the value has to be computed when the file is READ.
+  :code-signing-identity #.(let ((identity (uiop:getenv "UTC_STATUS_SIGN_IDENTITY")))
+                             ;; An EMPTY value counts as absent.  GETENV answers
+                             ;; "" for a variable that is set and empty, which
+                             ;; make does whenever SIGN_IDENTITY is unset, and
+                             ;; "" is not NIL -- so an OR here hands codesign an
+                             ;; empty identity rather than falling back to ad hoc.
+                             (if (and identity (plusp (length identity)))
+                                 identity
+                                 "-"))
   :bundle-output-directory "build/"
   :components ((:module "src"
                 :components ((:file "main")))))
