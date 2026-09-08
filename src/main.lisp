@@ -17,6 +17,7 @@
   utc-status --login-status  say whether it is set to start at login, and exit
   utc-status --login-add     add it to the login items, and exit
   utc-status --login-remove  remove it from the login items, and exit
+  utc-status --diagnose      walk the startup sequence, naming each step
   utc-status --help          this
 
 With no arguments it puts a clock in the menu bar.  The clock is UTC, laid out
@@ -61,6 +62,48 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
                    (login-item-status)
                    (unless (login-item-available-p)
                      "not running from a bundle, so registering is not possible"))
+           (finish-and-exit 0))
+          ;; Each step is printed BEFORE it runs and flushed immediately, so a
+          ;; step that dies is named by the last line in the log rather than by
+          ;; a backtrace.  Written for a sandboxed bundle, where the process
+          ;; aborts and there is nothing else to go on.
+          ((member "--diagnose" arguments :test #'string=)
+           (flet ((probe (name thunk)
+                    (format t "~&~A ..." name)
+                    (finish-output)
+                    (let ((value (funcall thunk)))
+                      (format t " ok~@[  ~S~]~%" value)
+                      (finish-output)
+                      value)))
+             (probe "ensure-appkit" (lambda () (ensure-appkit) nil))
+             (probe "sharedApplication"
+                   (lambda () (objc.runloop:shared-application) nil))
+             (probe "setActivationPolicy"
+                   (lambda () (objc.runloop:set-activation-policy 1) nil))
+             (probe "clock-preferences (another app's domain)"
+                   (lambda () (clock-preferences)))
+             (probe "our own preferences" (lambda () (effective-preferences)))
+             (probe "menu-bar-title" (lambda () (menu-bar-title)))
+             (probe "NSStatusBar systemStatusBar"
+                   (lambda () (objc:invoke "NSStatusBar" "systemStatusBar") nil))
+             (let ((item (probe "statusItemWithLength:"
+                               (lambda ()
+                                 (objc:invoke (objc:invoke "NSStatusBar" "systemStatusBar")
+                                              "statusItemWithLength:" -1d0)
+                                 nil))))
+               (declare (ignore item)))
+             (probe "button setTitle:"
+                   (lambda ()
+                     (let ((i (objc:invoke (objc:invoke "NSStatusBar" "systemStatusBar")
+                                           "statusItemWithLength:" -1d0)))
+                       (objc:invoke (objc:invoke i "button") "setTitle:" "probe"))
+                     nil))
+             (probe "build-menu"
+                   (lambda ()
+                     (let ((c (make-instance 'controller)))
+                       (build-menu (objc:objc-object-pointer c)))
+                     nil)))
+           (format t "~&all steps completed~%")
            (finish-and-exit 0))
           ((member "--login-add" arguments :test #'string=)
            (format t "~&login item: ~(~A~)~%" (register-login-item))
