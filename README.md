@@ -18,6 +18,12 @@ interface reimplemented for SBCL. The status item, its menu, the timer and the
 pasteboard are all Objective-C objects driven from Lisp, and the menu's actions
 are Lisp methods on a Lisp-defined class.
 
+## Download
+
+[**Releases**](https://github.com/lispnik/utc-status-app/releases) carries a
+signed, notarised disk image. Open it, drag *UTC Status* to Applications, done —
+the image and the application are both notarised, so it opens with no warning.
+
 ## Building and running
 
 ```
@@ -220,6 +226,19 @@ line; the bundle is the GUI.
 That redirection found a real bug in this application, which is why CI asserts on
 it: `main` called `sb-ext:exit` without flushing, and against a buffered log
 stream the output went nowhere at all — not to the terminal, not to the log.
+
+### Packaging
+
+```
+make dmg SIGN_IDENTITY="Developer ID Application: You (TEAMID)"
+make notarize-dmg
+```
+
+**The disk image is notarised and stapled in its own right**, not just the
+application inside it. Stapling only the app leaves the *download* unrecognised,
+so the first thing a user touches is the thing Gatekeeper complains about.
+Notarising the app first is still required — the notary service inspects what is
+inside the image.
 
 ### Notarising
 

@@ -9,6 +9,7 @@
 #   make repl       an SBCL with the library loaded
 #   make install    copy the binary to $(PREFIX)/bin
 #   make notarize         submit the signed bundle to Apple and staple the ticket
+#   make dmg              a signed, notarised disk image in dist/
 #   make install-app      copy the bundle to $(APPS)
 #   make install-agent    install and start it at login, via launchd
 #   make install-app-agent  the same, but starting the .app bundle
@@ -37,6 +38,9 @@ LABEL = com.lispnik.utc-status
 # which prompts for an app-specific password from appleid.apple.com -- not your
 # Apple ID password.
 NOTARY_PROFILE ?= utc-status
+DIST = dist
+VERSION = $(shell sed -n 's/.*:version "\(.*\)".*/\1/p' utc-status-app.asd | head -1)
+DMG = $(DIST)/UTC-Status-$(VERSION).dmg
 # The codesigning identity.  Empty means ad hoc, which builds anywhere and
 # cannot be notarised; a Developer ID makes the bundle distributable.  Reaches
 # the .asd through the environment -- see utc-status-app-bundle.asd.
@@ -60,7 +64,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: agent-plist icon notarize all build app test test-clipboard run deps repl env clean \
+.PHONY: agent-plist icon notarize dmg notarize-dmg all build app test test-clipboard run deps repl env clean \
         install uninstall install-app install-agent install-app-agent \
         uninstall-agent agent-status
 
@@ -184,6 +188,42 @@ notarize: app
 	@spctl -a -vvv -t install "$(APP)"
 	@xcrun stapler validate "$(APP)"
 
+# A disk image, which is what people expect to download.
+#
+# The DMG is notarised and stapled IN ITS OWN RIGHT, not just the app inside it.
+# Stapling only the app leaves the download itself unrecognised, so the first
+# thing the user sees -- the disk image -- is the thing Gatekeeper complains
+# about.  Notarising the app first is still required: the notary service checks
+# what is inside.
+dmg: $(DMG)
+
+$(DMG): $(APP_STAMP)
+	@mkdir -p $(DIST)
+	rm -f "$(DMG)"
+	@# A staging directory with the app and a link to /Applications, which is
+	@# the convention every Mac user already knows how to act on.
+	rm -rf "$(DIST)/stage"
+	mkdir -p "$(DIST)/stage"
+	cp -R "$(APP)" "$(DIST)/stage/"
+	ln -s /Applications "$(DIST)/stage/Applications"
+	hdiutil create -volname "UTC Status" -srcfolder "$(DIST)/stage" \
+	  -ov -format UDZO "$(DMG)"
+	rm -rf "$(DIST)/stage"
+	@if [ -n "$(SIGN_IDENTITY)" ]; then \
+	  echo "signing the disk image"; \
+	  codesign --force --sign "$(SIGN_IDENTITY)" --timestamp "$(DMG)"; \
+	else \
+	  echo "note: unsigned disk image (no SIGN_IDENTITY)"; \
+	fi
+	@echo "built $(DMG)"
+
+# Notarise the disk image itself and staple the ticket to it.
+notarize-dmg: $(DMG)
+	xcrun notarytool submit "$(DMG)" --keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple "$(DMG)"
+	@echo
+	@spctl -a -vvv -t open --context context:primary-signature "$(DMG)"
+
 install-app: app
 	@mkdir -p "$(APPS)"
 	rm -rf "$(APPS)/UTC Status.app"
@@ -230,6 +270,6 @@ agent-status:
 
 clean:
 	rm -f bin/utc-status
-	rm -rf build
+	rm -rf build $(DIST)
 	rm -rf *.fasl
 	rm -rf $(HOME)/.cache/common-lisp/*/$(CURDIR)

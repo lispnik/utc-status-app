@@ -3,5 +3,6 @@ bin/
 ocicl/
 rendered.plist
 build/
+dist/
 bundle.log
 .DS_Store
