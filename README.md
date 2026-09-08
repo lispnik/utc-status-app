@@ -145,13 +145,36 @@ the dylibs CFFI reports so a bundle is self-contained; objc binds
 must not be copied in. An empty Frameworks directory here is the right answer,
 not a missed step.
 
-**The bundle is signed**, ad hoc, with the hardened runtime:
+**The bundle is signed** with a Developer ID and the hardened runtime:
 
 ```
 $ codesign -dvv "build/UTC Status.app"
-CodeDirectory v=20500 flags=0x10002(adhoc,runtime)
+CodeDirectory v=20500 flags=0x10000(runtime)
+Authority=Developer ID Application: Matthew Kennedy (Q47YS469F2)
+TeamIdentifier=Q47YS469F2
 $ codesign --verify --deep --strict "build/UTC Status.app"   # exit 0
 ```
+
+Building it yourself means putting your own identity in
+`utc-status-app-bundle.asd`; `"-"` there gives an ad hoc signature, which runs
+locally and cannot be notarised.
+
+**It needs an SBCL built `--without-sb-core-compression`.** SBCL enables core
+compression whenever it finds zstd, and the runtime then links
+`/opt/homebrew/opt/zstd/lib/libzstd.1.dylib` **by absolute path** — so the
+bundle launches on the machine that built it and dies with a dyld error
+anywhere else. Notarisation does not catch this: Apple checks the signature, not
+whether your dylibs exist on someone else's disk.
+
+```
+$ otool -L "build/UTC Status.app/Contents/MacOS/utc-status"
+  /usr/lib/libSystem.B.dylib          # and nothing else
+```
+
+The compression was pure cost here, incidentally: the bundle never set
+`:compression`, so the core was never compressed in the first place. Dropping
+zstd changed the bundle size by nothing and removed the only external
+dependency.
 
 That did not work at first, and the reason is worth knowing if you build SBCL
 apps. `save-lisp-and-die :executable t` appends the core to the runtime's Mach-O

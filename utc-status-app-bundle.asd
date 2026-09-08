@@ -47,17 +47,14 @@
   ;; is an edit rather than an asset pipeline.
   :bundle-icon "res/icon.png"
   :bundle-copyright "MIT"
-  ;; Ad hoc, and it works now.  It did not until asdf-macos-app stopped dumping
-  ;; an executable image: SAVE-LISP-AND-DIE :EXECUTABLE T appends the core past
-  ;; the end of the Mach-O and past the code signature, and codesign refuses the
-  ;; result with "main executable failed strict validation" -- for a Developer ID
-  ;; as much as for ad hoc.  The bundle now holds the SBCL runtime, which is an
-  ;; ordinary signable binary, with the core beside it as a sealed resource.
-  ;;
-  ;; "-" is still ad hoc: enough to satisfy the hardened runtime locally, not
-  ;; enough to notarise.  Put a Developer ID here for that; nothing else needs
-  ;; to change, which is the point of the exercise.
-  :code-signing-identity "-"
+  ;; A Developer ID, which is what notarisation requires -- Apple refuses an ad
+  ;; hoc signature outright.  This works at all only because asdf-macos-app
+  ;; stopped dumping an executable image: SAVE-LISP-AND-DIE :EXECUTABLE T
+  ;; appends the core past the end of the Mach-O and past the code signature,
+  ;; and codesign refuses the result with "main executable failed strict
+  ;; validation".  The bundle now holds the SBCL runtime, which is an ordinary
+  ;; signable binary, with the core beside it as a sealed resource.
+  :code-signing-identity "Developer ID Application: Matthew Kennedy (Q47YS469F2)"
   :bundle-output-directory "build/"
   :components ((:module "src"
                 :components ((:file "main")))))
