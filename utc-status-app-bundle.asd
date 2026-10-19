@@ -31,7 +31,7 @@
   :depends-on (#:utc-status-app)
   :entry-point "utc-status-app:main"
   :version "0.3.0"
-  :bundle-identifier "com.lispnik.utc-status"
+  :bundle-identifier "com.burnsidemk.utc-status-app"
   :bundle-name "UTC Status"
   :bundle-executable "utc-status"
   ;; LSUIElement: no Dock icon, no application menu, but it may have UI.  The

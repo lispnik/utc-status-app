@@ -88,7 +88,7 @@ to yes far more often than not."
 ;;; touched the menu.  That is why these are read with -objectForKey: first
 ;;; rather than -boolForKey:, which cannot tell an absent key from a false one.
 
-(defparameter +preferences-domain+ "com.lispnik.utc-status"
+(defparameter +preferences-domain+ "com.burnsidemk.utc-status-app"
   "Where this application keeps its own settings.")
 
 (defun %bundle-identifier ()
@@ -114,7 +114,7 @@ bundle -- the loose binary has no identifier, so the suite is somebody else's
 and works.  Which is exactly the sort of bug that ships.
 
 So: -standardUserDefaults when our identifier is the bundle's, the named suite
-otherwise.  Both write com.lispnik.utc-status.plist, so a preference set by one
+otherwise.  Both write com.burnsidemk.utc-status-app.plist, so a preference set by one
 is read by the other."
   (if (equal (%bundle-identifier) +preferences-domain+)
       (objc:invoke "NSUserDefaults" "standardUserDefaults")

@@ -341,7 +341,7 @@ A **LaunchAgent**, not a LaunchDaemon: an agent runs in your GUI session, which
 is the only place a status item can exist. A daemon runs before login, in no
 session, with no menu bar to put anything in.
 
-Three details in `etc/com.lispnik.utc-status.plist.in` are deliberate:
+Three details in `etc/com.burnsidemk.utc-status-app.plist.in` are deliberate:
 
 **`KeepAlive` is `{SuccessfulExit: false}`, not `true`.** A bare `true` is the
 obvious thing and is a trap: choosing Quit from the menu exits 0, and launchd
@@ -393,7 +393,7 @@ Below them are two checkable items:
 | **Show Seconds** | seconds in the menu-bar title, regardless of what the system clock does |
 | **Show UTC Label** | append ` UTC`, so two identically-shaped clocks are told apart |
 
-Both are stored in `com.lispnik.utc-status` and survive a restart. **Absent means
+Both are stored in `com.burnsidemk.utc-status-app` and survive a restart. **Absent means
 "follow the system"** — the state before you have touched either — and once set,
 ours wins. That is what makes them behave like checkboxes: the first click writes
 the opposite of whatever is on screen, whichever way the system had it. An
@@ -419,7 +419,7 @@ Comparing two small plists on a timer is unglamorous and actually works:
 ```lisp
 (setf (preference +seconds-key+) :off)
 (menu-bar-title instant)          ; => "Sat Sep 5  21:47"
-;; ... `defaults write com.lispnik.utc-status ShowSeconds -bool true'
+;; ... `defaults write com.burnsidemk.utc-status-app ShowSeconds -bool true'
 ;;     from another process, exactly as System Settings would ...
 (menu-bar-title instant)          ; => "Sat Sep 5  21:47:03"
 ```

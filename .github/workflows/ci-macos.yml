@@ -120,7 +120,7 @@ jobs:
         # substitution is where a stray quote would get in.
         working-directory: utc-status-app
         run: |
-          plutil -lint etc/com.lispnik.utc-status.plist.in
+          plutil -lint etc/com.burnsidemk.utc-status-app.plist.in
           make agent-plist AGENT="$PWD/rendered.plist" AGENT_DIR="$PWD" LOGS="$PWD" \
             OBJC_DIR="$GITHUB_WORKSPACE/objc" \
             MACOS_APP_DIR="$GITHUB_WORKSPACE/asdf-macos-app"

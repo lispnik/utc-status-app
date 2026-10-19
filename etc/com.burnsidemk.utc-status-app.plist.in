@@ -13,7 +13,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.lispnik.utc-status</string>
+  <string>com.burnsidemk.utc-status-app</string>
 
   <key>ProgramArguments</key>
   <array>

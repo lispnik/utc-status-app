@@ -31,7 +31,7 @@ APPS ?= $(HOME)/Applications
 # install-app-agent' points it at the bundle instead.
 EXEC ?= $(PREFIX)/bin/utc-status
 LOGS ?= $(HOME)/Library/Logs
-LABEL = com.lispnik.utc-status
+LABEL = com.burnsidemk.utc-status-app
 # The notarytool keychain profile, stored once with
 #   xcrun notarytool store-credentials $(NOTARY_PROFILE) \
 #     --apple-id <you> --team-id <your team>
