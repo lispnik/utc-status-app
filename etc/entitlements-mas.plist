@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The ECL bundle (`make app-ecl'), which is the Mac App Store one.  It is
+	     sandboxed in every build, so what runs locally is what TestFlight
+	     runs; `make mas' adds the application and team identifiers from the
+	     provisioning profile.  The SBCL bundle keeps asdf-macos-app's
+	     :sbcl-default.
+
+	     Nothing for the hardened runtime: ECL's code is in the Mach-O, and
+	     run-time COMPILE is the bytecode compiler.  Nothing for LaunchServices
+	     either: the program links AppKit at launch, which is what lets a
+	     sandboxed process reach it (see tools/build-ecl.lisp).  An XML comment
+	     may not contain two hyphens in a row; the signing parser enforces it
+	     and plutil does not. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- The system clock's settings, which the title is laid out to match.
+	     Without it the sandbox hands back an empty domain from the container,
+	     and the clock silently falls back to the defaults. -->
+	<key>com.apple.security.temporary-exception.shared-preference.read-only</key>
+	<array>
+		<string>com.apple.menuextra.clock</string>
+	</array>
+</dict>
+</plist>

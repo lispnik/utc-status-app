@@ -36,9 +36,9 @@ happened yet, which is a poor property for something you paste into a log."
 (defun now ()
   "The current instant, to microsecond resolution.
 
-SB-EXT:GET-TIME-OF-DAY rather than GET-UNIVERSAL-TIME, which has a resolution of
-one second and so cannot serve the two fractional renderings."
-  (multiple-value-bind (seconds microseconds) (sb-ext:get-time-of-day)
+gettimeofday(2) rather than GET-UNIVERSAL-TIME, which has a resolution of one
+second and so cannot serve the two fractional renderings."
+  (multiple-value-bind (seconds microseconds) (time-of-day)
     (make-instant seconds microseconds)))
 
 (defun instant-parts (instant)

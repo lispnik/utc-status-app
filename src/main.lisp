@@ -39,7 +39,7 @@ SB-EXT:EXIT does with a half-full buffer is not something to rely on.  Measured
 to the terminal or to the log, until this was here."
   (finish-output *standard-output*)
   (finish-output *error-output*)
-  (sb-ext:exit :code code))
+  (exit-now code))
 
 (defun main ()
   "The binary's entry point.
@@ -47,7 +47,9 @@ to the terminal or to the log, until this was here."
 Errors are reported and turned into a non-zero exit rather than dropping into
 the debugger: a menu-bar application launched from the Finder has no terminal to
 show a backtrace in, and a debugger prompt nobody can see is a hang."
-  (let ((arguments (rest sb-ext:*posix-argv*)))
+  (ensure-appkit)
+  (redirect-output-to-log)
+  (let ((arguments (command-arguments)))
     (handler-case
         (cond
           ((or (member "--help" arguments :test #'string=)
@@ -61,7 +63,7 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
            (format t "~&login item: ~(~A~)~@[  (~A)~]~%"
                    (login-item-status)
                    (unless (login-item-available-p)
-                     "not running from a bundle, so registering is not possible"))
+                     "not available here: not running from a bundle, or sandboxed"))
            (finish-and-exit 0))
           ;; Each step is printed BEFORE it runs and flushed immediately, so a
           ;; step that dies is named by the last line in the log rather than by
@@ -136,7 +138,7 @@ show a backtrace in, and a debugger prompt nobody can see is a hang."
       ;; about it is noise: every well-behaved command-line tool exits quietly
       ;; when its reader has gone away.  Caught before the general handler
       ;; because a stream error IS an error and would otherwise be reported.
-      (stream-error () (sb-ext:exit :code 0 :abort t))
+      (stream-error () (exit-now 0))
       (error (condition)
         (format *error-output* "~&utc-status: ~A~%" condition)
         (finish-and-exit 1)))))

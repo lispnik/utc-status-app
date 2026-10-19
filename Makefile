@@ -15,6 +15,10 @@
 #   make install-app-agent  the same, but starting the .app bundle
 #   make uninstall-agent  stop it and remove the LaunchAgent
 #   make agent-status     what launchd thinks of it
+#   make app-ecl          "build/ecl/UTC Status.app", the same app built with lispnik/ecl
+#   make test-ecl         the FiveAM suite on ECL
+#   make mas              the ECL bundle as a signed Mac App Store .pkg
+#   make testflight       validate that .pkg and upload it to TestFlight
 #   make clean      remove the binary, fasls, and this tree's ASDF cache
 #
 # The objc bindings are not on ocicl -- they are a sibling checkout -- so every
@@ -22,6 +26,15 @@
 # overrides where it looks.
 
 LISP ?= sbcl
+
+# Machine-specific settings, kept out of git: signing identities, the App Store
+# provisioning profile and API key.  See local.mk.example.
+-include local.mk
+
+# lispnik/ecl, not Homebrew's, which cannot resolve foreign symbols through
+# :default on Darwin -- see objc's README, "ECL".  Builds the App Store bundle.
+ECL_PREFIX ?= $(HOME)/Projects/ecl/ecl-native
+ECL ?= $(ECL_PREFIX)/bin/ecl
 OBJC_DIR ?= $(HOME)/Projects/common-lisp/objc
 MACOS_APP_DIR ?= $(HOME)/Projects/common-lisp/asdf-macos-app
 
@@ -64,7 +77,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: agent-plist icon notarize dmg notarize-dmg all build app test test-clipboard run deps repl env clean \
+.PHONY: agent-plist icon notarize dmg notarize-dmg mas testflight app-ecl test-ecl all build app test test-clipboard run deps repl env clean \
         install uninstall install-app install-agent install-app-agent \
         uninstall-agent agent-status
 
@@ -223,6 +236,110 @@ notarize-dmg: $(DMG)
 	xcrun stapler staple "$(DMG)"
 	@echo
 	@spctl -a -vvv -t open --context context:primary-signature "$(DMG)"
+
+# ECL ------------------------------------------------------------------------
+#
+# The Mac App Store bundle is ECL, not SBCL.  The store requires the App Sandbox,
+# and a sandboxed process may reach LaunchServices only if a framework that
+# checks in with it was loaded at exec: the SBCL runtime asdf-macos-app copies
+# links nothing but libSystem and cannot be relinked, so the SBCL bundle needed
+# a temporary sandbox exception to start at all, where an ECL program simply
+# links AppKit.  It also needs no hardened-runtime exceptions, and is a seventh
+# the size.
+#
+# asdf-macos-app is SBCL-only, so this rule assembles the bundle around the
+# program tools/build-ecl.lisp links, from the SBCL bundle's Info.plist and
+# icon, with libecl beside it in Frameworks/ and nothing else from ECL.
+
+ECL_LISP = $(ECL) --norc --eval '(require :asdf)' --eval '$(REGISTRY)'
+ECL_APP = build/ecl/UTC Status.app
+ECL_APP_STAMP = build/ecl/.app-stamp
+ECL_EXE = $(ECL_APP)/Contents/MacOS/utc-status
+ECL_LIBECL = $(notdir $(firstword $(shell otool -L $(ECL) | sed -n 's|.*@rpath/\(libecl[^ ]*\).*|\1|p')))
+
+app-ecl: $(ECL_APP_STAMP)
+
+build/ecl/utc-status: utc-status-app.asd $(wildcard src/*.lisp) tools/build-ecl.lisp
+	$(ECL_LISP) --load tools/build-ecl.lisp --eval '(ext:quit 0)'
+
+$(ECL_APP_STAMP): build/ecl/utc-status $(APP_STAMP) etc/entitlements-mas.plist Makefile
+	rm -rf "$(ECL_APP)"
+	mkdir -p "$(ECL_APP)/Contents/MacOS" "$(ECL_APP)/Contents/Resources" \
+	         "$(ECL_APP)/Contents/Frameworks"
+	cp build/ecl/utc-status "$(ECL_EXE)"
+	cp "$(APP)/Contents/Info.plist" "$(APP)/Contents/PkgInfo" "$(ECL_APP)/Contents/"
+	cp "$(APP)/Contents/Resources/utc-status.icns" "$(ECL_APP)/Contents/Resources/"
+	@# The oldest macOS the executable loads on, read from it: the SBCL
+	@# bundle's 11.0 is wrong for an ECL built here, and App Store Connect
+	@# refuses an arm64-only app that declares less than 12.0.
+	plutil -replace LSMinimumSystemVersion -string \
+	  "$$(otool -l build/ecl/utc-status | sed -n '/LC_BUILD_VERSION/,/minos/s/.*minos //p' | head -1)" \
+	  "$(ECL_APP)/Contents/Info.plist"
+	plutil -replace ITSAppUsesNonExemptEncryption -bool NO "$(ECL_APP)/Contents/Info.plist"
+	@# libecl from the bundle: the link left an absolute LC_RPATH to the ECL
+	@# tree, which would work here and nowhere else.
+	cp -L "$(ECL_PREFIX)/lib/$(ECL_LIBECL)" "$(ECL_APP)/Contents/Frameworks/"
+	install_name_tool -delete_rpath "$(ECL_PREFIX)/lib/" "$(ECL_EXE)"
+	install_name_tool -add_rpath "@executable_path/../Frameworks" "$(ECL_EXE)"
+	codesign --force --sign "$(or $(SIGN_IDENTITY),-)" $(if $(SIGN_IDENTITY),--timestamp) \
+	  "$(ECL_APP)/Contents/Frameworks/$(ECL_LIBECL)"
+	codesign --force --sign "$(or $(SIGN_IDENTITY),-)" $(if $(SIGN_IDENTITY),--timestamp) \
+	  --options runtime --entitlements etc/entitlements-mas.plist "$(ECL_APP)"
+	codesign --verify --deep --strict "$(ECL_APP)"
+	@touch $(ECL_APP_STAMP)
+	@echo "built $(ECL_APP)"
+
+test-ecl:
+	$(ECL_LISP) --eval '(asdf:load-system :utc-status-app/tests)' \
+	  --eval '(ext:quit (if (utc-status-app/tests:run-tests) 0 1))'
+
+# The Mac App Store build ----------------------------------------------------
+#
+# The ECL bundle re-signed for the store: by an Apple Distribution identity,
+# with the Mac App Store profile embedded and the identifiers it grants added
+# to etc/entitlements-mas.plist; then a .pkg signed by the Mac Installer
+# Distribution identity.  A store-signed app will not launch locally; `make
+# app-ecl' is the same code, sandboxed the same way, and does.
+#
+# local.mk: MAS_IDENTITY, MAS_INSTALLER_IDENTITY, MAS_PROFILE, ASC_KEY_ID and
+# ASC_ISSUER_ID.  See local.mk.example.
+
+MAS_DIR = build/mas
+MAS_APP = $(MAS_DIR)/UTC Status.app
+MAS_PKG = $(MAS_DIR)/UTC-Status.pkg
+MAS_ENTITLEMENTS = $(MAS_DIR)/entitlements.plist
+# The team, from the identity's "(TEAMID)" suffix.
+TEAM_ID = $(shell echo '$(MAS_IDENTITY)' | sed -n 's/.*(\([A-Z0-9]*\)).*/\1/p')
+# CFBundleVersion has to rise with every upload of one short version; the time
+# does, even for two uploads from the same commit.
+MAS_BUILD := $(shell date +%Y%m%d.%H%M)
+
+mas: $(ECL_APP_STAMP)
+	@test -n "$(MAS_IDENTITY)" -a -n "$(MAS_INSTALLER_IDENTITY)" -a -f "$(MAS_PROFILE)" || { \
+	  echo "error: set MAS_IDENTITY, MAS_INSTALLER_IDENTITY and MAS_PROFILE in local.mk" >&2; exit 1; }
+	rm -rf "$(MAS_DIR)"
+	mkdir -p "$(MAS_DIR)"
+	cp -R "$(ECL_APP)" "$(MAS_APP)"
+	cp "$(MAS_PROFILE)" "$(MAS_APP)/Contents/embedded.provisionprofile"
+	plutil -replace CFBundleVersion -string $(MAS_BUILD) "$(MAS_APP)/Contents/Info.plist"
+	cp etc/entitlements-mas.plist "$(MAS_ENTITLEMENTS)"
+	plutil -insert 'com\.apple\.application-identifier' -string \
+	  "$(TEAM_ID).$$(plutil -extract CFBundleIdentifier raw "$(MAS_APP)/Contents/Info.plist")" "$(MAS_ENTITLEMENTS)"
+	plutil -insert 'com\.apple\.developer\.team-identifier' -string "$(TEAM_ID)" "$(MAS_ENTITLEMENTS)"
+	codesign --force --sign "$(MAS_IDENTITY)" "$(MAS_APP)/Contents/Frameworks/$(ECL_LIBECL)"
+	codesign --force --sign "$(MAS_IDENTITY)" --entitlements "$(MAS_ENTITLEMENTS)" "$(MAS_APP)"
+	codesign --verify --deep --strict "$(MAS_APP)"
+	productbuild --component "$(MAS_APP)" /Applications \
+	  --sign "$(MAS_INSTALLER_IDENTITY)" "$(MAS_PKG)"
+	@echo "built $(MAS_PKG)"
+
+testflight: mas
+	@test -n "$(ASC_KEY_ID)" -a -n "$(ASC_ISSUER_ID)" || { \
+	  echo "error: set ASC_KEY_ID and ASC_ISSUER_ID in local.mk" >&2; exit 1; }
+	xcrun altool --validate-app -f "$(MAS_PKG)" -t macos \
+	  --apiKey "$(ASC_KEY_ID)" --apiIssuer "$(ASC_ISSUER_ID)"
+	xcrun altool --upload-app -f "$(MAS_PKG)" -t macos \
+	  --apiKey "$(ASC_KEY_ID)" --apiIssuer "$(ASC_ISSUER_ID)"
 
 install-app: app
 	@mkdir -p "$(APPS)"

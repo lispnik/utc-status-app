@@ -63,12 +63,32 @@ location of the constant instead of the constant."
       (when identifier
         (objc:invoke-into 'string (objc:invoke "NSBundle" "mainBundle") "bundlePath")))))
 
+(defun sandboxed-p ()
+  "Whether this process runs in the App Sandbox, as the Mac App Store build
+does.
+
+Asked of NSHomeDirectory(), which inside the sandbox is the app's container,
+~/Library/Containers/<identifier>/Data, however the process was started.  Not
+of APP_SANDBOX_CONTAINER_ID: measured, a sandboxed bundle run from a shell has
+no such variable, so the check answered NIL inside the sandbox."
+  ;; Foundation first: --login-status asks this before anything else has
+  ;; loaded it, and NSHomeDirectory is then an undefined alien function.
+  (ensure-appkit)
+  (let ((home (cffi:foreign-funcall "NSHomeDirectory" :pointer)))
+    (and (not (cffi:null-pointer-p home))
+         (search "/Library/Containers/" (objc:ns-string-to-string home))
+         t)))
+
 (defun login-item-available-p ()
   "Whether registering as a login item is possible here.
 
 NIL from the loose binary: there is no .app for the list to point at, and an
-entry naming a bare executable would start it with no menu bar to draw in."
-  (and (bundle-path) t))
+entry naming a bare executable would start it with no menu bar to draw in.
+
+NIL in the sandbox too, which refuses LSSharedFileList.  The App Store way is
+SMAppService, which did not work for this bundle (see the header), so the store
+build has no Start at Login rather than a menu item that always fails."
+  (and (not (sandboxed-p)) (bundle-path) t))
 
 (defmacro with-login-items ((list) &body body)
   "Bind LIST to the session's login item list for the extent of BODY."

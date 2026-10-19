@@ -28,6 +28,7 @@ the menu's actions are Lisp methods on a Lisp-defined class."
                 :serial t
                 :components
                 ((:file "package")
+                 (:file "portable")
                  (:file "frameworks")
                  (:file "iso")
                  (:file "layout")
