@@ -2,6 +2,7 @@
 #
 #   make            build bin/utc-status
 #   make app        build "build/UTC Status.app"
+#   make runtime    the SBCL runtime relinked with CoreFoundation, for the sandbox
 #   make test       run the FiveAM suite
 #   make env        print what the layout code decided on this machine
 #   make run        build and run the application
@@ -59,6 +60,14 @@ DMG = $(DIST)/UTC-Status-$(VERSION).dmg
 # the .asd through the environment -- see utc-status-app-bundle.asd.
 SIGN_IDENTITY ?=
 export UTC_STATUS_SIGN_IDENTITY = $(SIGN_IDENTITY)
+# The SBCL runtime the bundle is built around.  Empty means asdf-macos-app copies
+# the building SBCL's own, which is right for the Developer ID build; a
+# sandboxed SBCL bundle needs `make runtime' and RUNTIME=build/sbcl-runtime.
+# SBCL_SRC is the tree that built the running SBCL -- the relink takes its
+# objects, so its build ID is the one the core is dumped with.
+SBCL_SRC ?= $(HOME)/Projects/sbcl
+RUNTIME ?=
+export UTC_STATUS_RUNTIME = $(RUNTIME)
 AGENT_DIR = $(HOME)/Library/LaunchAgents
 AGENT = $(AGENT_DIR)/$(LABEL).plist
 # launchd's per-user GUI domain.  `gui/<uid>' and not `user/<uid>': the latter
@@ -77,7 +86,7 @@ REGISTRY = (asdf:initialize-source-registry \
                     (list :tree (truename "$(MACOS_APP_DIR)")) \
                     :ignore-inherited-configuration))
 
-.PHONY: agent-plist icon notarize dmg notarize-dmg mas testflight app-ecl test-ecl all build app test test-clipboard run deps repl env clean \
+.PHONY: runtime agent-plist icon notarize dmg notarize-dmg mas testflight app-ecl test-ecl all build app test test-clipboard run deps repl env clean \
         install uninstall install-app install-agent install-app-agent \
         uninstall-agent agent-status
 
@@ -90,16 +99,44 @@ build: bin/utc-status
 # which is also what keeps `make app' from rebuilding a 46MB image every time.
 APP = build/UTC Status.app
 APP_STAMP = build/.app-stamp
+# Which runtime the bundle was built around, rewritten only when that changes --
+# a file date cannot say that RUNTIME went from empty to set, and without this
+# `make app RUNTIME=...' after a plain `make app' would build nothing.
+RUNTIME_CHOICE = build/.runtime-choice
 
 app: $(APP_STAMP)
 
-$(APP_STAMP): utc-status-app-bundle.asd $(wildcard src/*.lisp) res/icon.png
+$(RUNTIME_CHOICE): FORCE
+	@mkdir -p build
+	@echo '$(RUNTIME)' | cmp -s - $@ || echo '$(RUNTIME)' > $@
+
+$(APP_STAMP): utc-status-app-bundle.asd $(wildcard src/*.lisp) res/icon.png \
+              $(RUNTIME_CHOICE) $(RUNTIME)
 	$(LISP) --non-interactive --no-userinit --no-sysinit \
 	  --eval '(require :asdf)' \
 	  --eval '$(REGISTRY)' \
 	  --eval '(asdf:make :utc-status-app-bundle)'
 	@touch $(APP_STAMP)
 	@echo "built $(APP)"
+
+# The runtime relinked with CoreFoundation.  Under the App Sandbox the stock one,
+# which links only libSystem, has AppKit's mach-lookup of launchservicesd refused
+# and aborts in sharedApplication; a framework linked at exec avoids that, and
+# one dlopened afterwards -- however early -- does not.
+#
+# SBCL's own link line, from a dry run, so the objects and libraries are exactly
+# its own, with one framework appended.  -W main.o makes the dry run print the
+# link without rebuilding anything.
+build/sbcl-runtime: $(SBCL_SRC)/src/runtime/sbcl
+	@mkdir -p build
+	cd $(SBCL_SRC)/src/runtime && \
+	  link=$$(make -n -W main.o sbcl | grep '^cc .* -o sbcl ') && \
+	  test -n "$$link" && \
+	  $$(echo "$$link" | sed 's| -o sbcl | -o $(CURDIR)/$@ |') -framework CoreFoundation
+	@otool -L $@ | grep -q CoreFoundation.framework
+	@echo "built $@"
+
+runtime: build/sbcl-runtime
 
 bin/utc-status: utc-status-app.asd $(wildcard src/*.lisp)
 	@mkdir -p bin
@@ -390,3 +427,5 @@ clean:
 	rm -rf build $(DIST)
 	rm -rf *.fasl
 	rm -rf $(HOME)/.cache/common-lisp/*/$(CURDIR)
+
+FORCE:

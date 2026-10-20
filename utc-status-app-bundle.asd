@@ -70,6 +70,18 @@
                              (if (and identity (plusp (length identity)))
                                  identity
                                  "-"))
+  ;; The SBCL runtime to put in Contents/MacOS/.  Absent means asdf-macos-app
+  ;; copies the building SBCL's own, which links nothing but libSystem and so
+  ;; aborts in +[NSApplication sharedApplication] under the App Sandbox.  A
+  ;; sandboxed build needs one relinked with CoreFoundation -- `make runtime'.
+  ;;
+  ;;   make app RUNTIME=build/sbcl-runtime
+  ;;
+  ;; Relative to this file.  asdf-macos-app refuses a runtime from any other
+  ;; SBCL build, since the core would refuse it at launch.  Empty is absent, as
+  ;; for the identity above.
+  :bundle-runtime #.(let ((runtime (uiop:getenv "UTC_STATUS_RUNTIME")))
+                      (and runtime (plusp (length runtime)) runtime))
   :bundle-output-directory "build/"
   :components ((:module "src"
                 :components ((:file "main")))))

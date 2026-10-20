@@ -276,6 +276,20 @@ the App Sandbox — which this application could not adopt as it stands, since
 `allow-jit` and `allow-unsigned-executable-memory` are exactly what an SBCL
 image needs and exactly what the store refuses.
 
+The sandbox itself is no longer the obstacle. The stock SBCL runtime links only
+libSystem, and a sandboxed process that loads AppKit later is refused
+LaunchServices and aborts in `sharedApplication`; one relinked with
+CoreFoundation starts, sandboxed, from Finder:
+
+```
+make runtime                          # build/sbcl-runtime, from $(SBCL_SRC)
+make app RUNTIME=build/sbcl-runtime
+```
+
+The relink takes the objects of the SBCL tree that built the running SBCL
+(`SBCL_SRC`, default `~/Projects/sbcl`), because a core starts only under a
+runtime with its build ID; asdf-macos-app refuses any other.
+
 `make notarize` guards two failures that are slow and silent respectively:
 
 - an **ad hoc** signature, which Apple refuses only after the upload;
